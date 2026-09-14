@@ -23,8 +23,8 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 
 | Status | Count |
 |---|---|
-| `[x] SOLVED` | 32 |
-| `[~] WORKAROUND` | 33 |
+| `[x] SOLVED` | 33 |
+| `[~] WORKAROUND` | 32 |
 | `[?] UNTESTED` | 47 |
 | `[ ] OPEN` | 1 |
 | `[UI] UI-ONLY` | 40 |
@@ -92,7 +92,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 - [x] SOLVED Punch in (zoom and reframe) on chosen clips - `SetProperties({'ZoomX', 'ZoomY', 'Pan', 'Tilt', ...})`. `punch_in_clips.py`, `alternate_punch_ins.py`.
 - [x] SOLVED Add a vignette to the picture - no call draws a power window or adds a ResolveFX. A Fusion composition on a new top track (black `Background` masked by an inverted soft `EllipseMask`, item `Opacity` 55 to 70), verified by a 1-frame Deliver render. `fusion_vignette_layer.py` (0e05d2ae 09:28:46, 09:30:03; removed at Bruno's request 09:31:10).
-- [~] WORKAROUND Change the duration of a title or generator - no duration setter. Delete and re-insert with `SetMarkInOut(start, end - 1)` and the playhead parked at `start`. `title_fitted_to_clip.py`, assembled from recipes that ran piecemeal, not yet run as a whole file.
+- [x] SOLVED Change the duration of a title or generator - no duration setter. `retrim_title.py` snapshots every title to the right (name, extent, StyledText), deletes them with the target, refreshes, re-inserts all in ascending order with the new length and restyles them; the insert is a ripple on its track, so the snapshot is what keeps the rest in place (ran whole 2026-09-14, session 0e05d2ae). `title_fitted_to_clip.py` remains assembled and unrun.
 - [~] WORKAROUND Reset a clip's attributes - `SetProperties` with the defaults (Pan 0, Tilt 0, Zoom 1, Rotation 0, Opacity 100, crops 0). Same call `punch_in_clips.py` uses; no reset script.
 - [?] UNTESTED Reverse a clip - `SetSpeed({'Percentage': p})` documents "0.0 = freeze frame" and says nothing about negatives. Try a negative percentage once; if it fails Bruno uses Change Clip Speed, Reverse.
 - [?] UNTESTED Freeze frame at a point inside a clip - split as above, then `SetSpeed({'Percentage': 0.0})` on a middle segment appended from a 1-frame source range; the duration a speed-0 item takes is undocumented.

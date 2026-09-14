@@ -25,7 +25,7 @@ Importing the package does not connect; `connect()` does, and raises `ResolveNot
 
     python -m monet_resolve.run scripts/map_project.py
 
-The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 29 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
+The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 30 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
 
 ## Frames
 

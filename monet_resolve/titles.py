@@ -133,6 +133,61 @@ def title_fitted_to_clip(resolve, project, timeline, clip_track: int, clip_name:
     return {"title": (it.GetName(), it.GetStart() - s, it.GetDuration()), "clip": (clip.GetName(), start, dur), "fits": it.GetDuration() == dur}
 
 
+def retrim_title(resolve, project, timeline, track: int, start: int, duration: int, other=None,
+                 font: str = "Inter 28pt", style: str = "Medium", size: float = 0.045,
+                 rgb: Tuple[float, float, float] = (1, 0.85, 0.35), color: str = "Orange") -> Dict:
+    """Give the Text+ title that starts at `start` on `track` a new `duration`, leaving every other title in place.
+
+    The workaround for the missing duration setter, done without disturbing the track: an
+    `InsertFusionTitleIntoTimeline` is a ripple on its track, so every title to the right of `start` is
+    snapshotted (name, start, duration, StyledText read on the Fusion page), deleted together with the
+    target, the timeline is refreshed (`other`), then the target and the snapshotted titles are re-inserted
+    in ascending order with `insert_fusion_title` (nothing sits to their right, so nothing ripples) and
+    restyled with `style_text_plus`. Saves. Returns {"title": (name, start, end), "restored": n,
+    "misplaced": [(name, wanted, got)]}. Worked 2026-09-14 (a first version without the snapshot pushed
+    eight placeholders 247 frames down the track).
+    """
+    resolve.OpenPage("edit")
+    s = timeline.GetStartFrame()
+    fps = timeline_fps(timeline)
+    right = [x for x in items(timeline, "video", track) if x.GetStart() - s >= start]
+    if not right or right[0].GetStart() - s != start:
+        return {"title": None, "restored": 0, "misplaced": [], "error": f"no title starts at {start}"}
+    resolve.OpenPage("fusion")
+    snap = []
+    for x in right:
+        tools = [q for q in x.GetFusionCompByIndex(1).GetToolList().values() if q.ID == "TextPlus"]
+        snap.append({"name": x.GetName(), "start": x.GetStart() - s, "dur": x.GetDuration(),
+                     "color": x.GetClipColor(), "text": tools[0].GetInput("StyledText") if tools else None})
+    snap[0]["dur"] = duration
+    resolve.OpenPage("edit")
+    timeline.DeleteClips(right, False)
+    if other is not None:
+        refresh_timeline(project, timeline, other)
+        resolve.OpenPage("edit")
+    misplaced = []
+    with track_locks(timeline, track):
+        for c in snap:
+            it = insert_fusion_title(timeline, c["start"], c["dur"], fps)
+            if not it:
+                misplaced.append((c["name"], c["start"], None))
+                continue
+            it.SetName(c["name"])
+            it.SetClipColor(c["color"] or color)
+            if it.GetStart() - s != c["start"] or it.GetDuration() != c["dur"]:
+                misplaced.append((c["name"], c["start"], it.GetStart() - s))
+    resolve.OpenPage("fusion")
+    for c in snap:
+        hit = [q for q in items(timeline, "video", track) if q.GetStart() - s == c["start"]]
+        if hit and c["text"] is not None:
+            style_text_plus(hit[0].GetFusionCompByIndex(1), c["text"], font, style, size, rgb)
+    resolve.OpenPage("edit")
+    save(resolve)
+    head = [q for q in items(timeline, "video", track) if q.GetStart() - s == start]
+    title = (head[0].GetName(), start, head[0].GetEnd() - s) if head else None
+    return {"title": title, "restored": len(snap) - 1, "misplaced": misplaced}
+
+
 def fusion_vignette_layer(resolve, project, timeline, track_name: str = "GFX", center: Tuple[float, float] = (0.5, 0.5),
                           width: float = 1.0, height: float = 1.0, soft: float = 0.25, opacity: float = 70.0,
                           fps: Optional[int] = None, name: str = "GFX · Vignette", color: str = "Teal") -> Dict:
