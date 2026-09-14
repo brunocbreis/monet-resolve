@@ -25,7 +25,7 @@ Importing the package does not connect; `connect()` does, and raises `ResolveNot
 
     python -m monet_resolve.run scripts/map_project.py
 
-The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 30 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
+The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 31 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
 
 ## Frames
 
@@ -55,6 +55,7 @@ Assembly:
     mr.insert_fusion_comp_at(resolve, project, t, track=2, start=920, duration=274, name="TITLE - Harness")
     mr.nest_timeline_over_placeholder(resolve, project, t, nested_item, track=3, placeholder_start=920, placeholder_track=2)
     mr.swap_gfx_clip(resolve, project, "/path/harness-4k-v20.mov", mr.find_bin(mp, "gfx"), gfx_timeline, frames=274)
+    mr.place_clips_on_track(resolve, project, t, rec_clip, track=4, clips=[("REC - Automations tab", 2051, 1638, 1926)], zoom=1.155, color="Cyan", track_name="SCREEN RECS")
 
 Titles and Fusion:
 

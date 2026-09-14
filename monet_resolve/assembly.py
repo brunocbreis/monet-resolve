@@ -255,3 +255,43 @@ def swap_gfx_clip(resolve, project, path: str, folder, gfx_timeline, frames: int
             mp.DeleteClips(old)
     save(resolve)
     return {"on_timeline": [(i.GetName(), i.GetDuration()) for i in items(gfx_timeline, "video", 1)], "bin": [c.GetName() for c in folder.GetClipList()]}
+
+
+def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zoom: Optional[float] = None,
+                         color: Optional[str] = None, track_name: Optional[str] = None) -> List[Tuple[str, int, int, int, int]]:
+    """Append source ranges of one media pool clip onto `track` at explicit record frames, video only.
+
+    `clips` is [(name, record_start, source_in, source_out)] with `record_start` relative to the timeline
+    start and the source range in the clip's own frames. A 60p clip on a 24p timeline lands
+    `int((source_out - source_in) * 0.4)` frames long, so size the source range as `timeline_frames * 2.5`
+    (the 25p rule is `int(n * 0.96)`); the item's `GetSourceEndFrame` then reads a frame or two short of
+    `source_out`. Video tracks are added until `track` exists and it is renamed when `track_name` is
+    given; each item is named with `SetName` (':' and '/' fail silently, `clean_name` swaps them), coloured,
+    and given `ZoomX`/`ZoomY` when `zoom` is set (1.155 fills the 4K width with a 3548x2304 screen
+    recording that "scaleToFit" would otherwise pillarbox). `mediaType: 1` keeps the clip's audio off the
+    timeline. Saves. Returns [(name, start, duration, source_start, source_end)]. Worked 2026-09-14 on
+    the Raycast AI Update edit (six screen-recording slots over their V2 placeholders).
+    """
+    mp = project.GetMediaPool()
+    s = timeline.GetStartFrame()
+    project.SetCurrentTimeline(timeline)
+    while timeline.GetTrackCount("video") < track:
+        timeline.AddTrack("video")
+    if track_name:
+        timeline.SetTrackName("video", track, track_name)
+    out = []
+    for name, rec, a, b in clips:
+        r = mp.AppendToTimeline([{"mediaPoolItem": clip, "startFrame": a, "endFrame": b, "trackIndex": track, "recordFrame": s + rec, "mediaType": 1}])
+        it = r[0] if r else None
+        if not it:
+            out.append((name, rec, 0, a, b))
+            continue
+        it.SetName(clean_name(name))
+        if color:
+            it.SetClipColor(color)
+        if zoom:
+            it.SetProperty("ZoomX", zoom)
+            it.SetProperty("ZoomY", zoom)
+        out.append((it.GetName(), it.GetStart() - s, it.GetDuration(), it.GetSourceStartFrame(), it.GetSourceEndFrame()))
+    save(resolve)
+    return out

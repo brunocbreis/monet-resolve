@@ -12,7 +12,7 @@ from .timelines import map_timeline, backup_timeline, place_playhead, refresh_ti
 from .media import (walk_folders, list_bins, find_bin, find_clip, import_to_bin, import_file_once, replace_clip_file,
                     cleanup_scratch)
 from .assembly import (build_cut_from_list, close_gap_ripple, find_destination_track, insert_fusion_comp_at,
-                       nest_timeline_over_placeholder, swap_gfx_clip, SNAPSHOT_KEYS)
+                       nest_timeline_over_placeholder, swap_gfx_clip, place_clips_on_track, SNAPSHOT_KEYS)
 from .titles import (insert_fusion_title, insert_fusion_composition, style_text_plus, text_placeholders,
                      title_fitted_to_clip, fusion_vignette_layer)
 from .markers import beat_markers
@@ -33,7 +33,7 @@ __all__ = [
     "map_timeline", "backup_timeline", "place_playhead", "refresh_timeline",
     "walk_folders", "list_bins", "find_bin", "find_clip", "import_to_bin", "import_file_once", "replace_clip_file", "cleanup_scratch",
     "build_cut_from_list", "close_gap_ripple", "find_destination_track", "insert_fusion_comp_at",
-    "nest_timeline_over_placeholder", "swap_gfx_clip", "SNAPSHOT_KEYS",
+    "nest_timeline_over_placeholder", "swap_gfx_clip", "place_clips_on_track", "SNAPSHOT_KEYS",
     "insert_fusion_title", "insert_fusion_composition", "style_text_plus", "text_placeholders", "title_fitted_to_clip",
     "fusion_vignette_layer",
     "beat_markers",
