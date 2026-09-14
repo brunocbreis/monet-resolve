@@ -93,7 +93,9 @@ def close_gap_ripple(resolve, project, timeline, gap_start: int, gap_len: int, d
     tracks moves left by the gap length. Pass the video track indexes that must stay put in `lock_video`.
     Refuses when the range is occupied on `video_track` and returns {"error", "clips"} instead. Saves.
     Returns {"dummy_len", "expected_shift", "first_clip_before_after"} for checking the shift.
-    Status: assembled on 2026-09-11 from recipes that ran piecemeal; not yet run as a whole.
+    The dummy and its audio are matched by media pool clip, never by start frame alone: a music cue starting on
+    the gap frame once got swept into the ripple delete and took 1400 frames of the cut with it (2026-09-14).
+    A 245-frame gap needs a 256-frame 25p dummy (255 lands 244). Worked 2026-09-14 on Cut v3.
     """
     mp = project.GetMediaPool()
     project.SetCurrentTimeline(timeline)
@@ -104,9 +106,15 @@ def close_gap_ripple(resolve, project, timeline, gap_start: int, gap_len: int, d
         return {"error": "range is not empty on the video track", "clips": occupied}
     for ti in lock_video:
         timeline.SetTrackLock("video", ti, True)
-    mp.AppendToTimeline([{"mediaPoolItem": dummy_clip, "startFrame": 0, "endFrame": int(gap_len * source_fps_ratio + 0.5), "trackIndex": video_track, "recordFrame": s + gap_start}])
-    dummy = [x for x in items(timeline, "video", video_track) if x.GetStart() - s == gap_start]
-    dummy += [x for ai in range(1, timeline.GetTrackCount("audio") + 1) for x in items(timeline, "audio", ai) if x.GetStart() - s == gap_start and x.GetType() == "audio"]
+    n = int(gap_len * source_fps_ratio)
+    while int(n / source_fps_ratio) < gap_len:  # n source frames land int(n / ratio) timeline frames; pick the n that gives gap_len exactly
+        n += 1
+    mp.AppendToTimeline([{"mediaPoolItem": dummy_clip, "startFrame": 0, "endFrame": n, "trackIndex": video_track, "recordFrame": s + gap_start}])
+    def _is_dummy(x):
+        c = x.GetMediaPoolItem()
+        return x.GetStart() - s == gap_start and c is not None and c.GetName() == dummy_clip.GetName()
+    dummy = [x for x in items(timeline, "video", video_track) if _is_dummy(x)]
+    dummy += [x for ai in range(1, timeline.GetTrackCount("audio") + 1) for x in items(timeline, "audio", ai) if _is_dummy(x)]
     dlen = dummy[0].GetDuration() if dummy else 0
     timeline.DeleteClips(dummy, True)
     for ti in lock_video:
