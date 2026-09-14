@@ -1,7 +1,7 @@
 """Edit-page clip attributes: punch-ins."""
 from typing import Dict, Sequence, Tuple
 
-from ._util import items, save
+from ._util import items, save, tc
 
 
 def punch_in_clips(resolve, project, timeline, punches: Sequence[Tuple[int, str]], track: int = 1,
@@ -69,3 +69,22 @@ def alternate_punch_ins(resolve, project, timeline, track: int = 1, zoom: float 
             timeline.AddMarker(st, marker_color, f"PUNCH-IN {zoom}x", tid, 1)
     save(resolve)
     return {"camera": [(st, tid, fr) for st, tid, on, fr, cont in plan if on]}
+
+
+def freeze_item(timeline, item, fps: int = 24, settle: float = 0.4) -> Dict:
+    """Turn a timeline item into a freeze frame of its first source frame, keeping its duration.
+
+    `TimelineItem.SetSpeed({"Percentage": 0.0})` freezes on the frame under the playhead (clamped to the
+    item), so the playhead is parked on the item's first frame first (`SetCurrentTimecode`, absolute) and
+    the call waits `settle` seconds. The item keeps its duration and `GetSourceStartFrame() ==
+    GetSourceEndFrame()` afterwards; a Deliver render of the first and last frame came back pixel-identical
+    (SSIM 1.0). To freeze a chosen frame f for D timeline frames, append the source range [f, f + n) where
+    n gives D frames at the clip's rate (n = D * source_fps / timeline_fps), then call this.
+    Returns {"ok": bool, "duration", "source_frame"}. Worked 2026-09-14 (Resolve 21.1, 60p clip on 24p).
+    """
+    import time
+    s = timeline.GetStartFrame()
+    timeline.SetCurrentTimecode(tc(item.GetStart(), fps))
+    time.sleep(settle)
+    ok = item.SetSpeed({"Percentage": 0.0})
+    return {"ok": bool(ok), "duration": item.GetDuration(), "source_frame": item.GetSourceStartFrame()}

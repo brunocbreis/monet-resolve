@@ -12,14 +12,14 @@ from .timelines import map_timeline, backup_timeline, place_playhead, refresh_ti
 from .media import (walk_folders, list_bins, find_bin, find_clip, import_to_bin, import_file_once, replace_clip_file,
                     cleanup_scratch)
 from .assembly import (build_cut_from_list, close_gap_ripple, find_destination_track, insert_fusion_comp_at,
-                       nest_timeline_over_placeholder, swap_gfx_clip, place_clips_on_track, SNAPSHOT_KEYS)
+                       nest_timeline_over_placeholder, swap_gfx_clip, place_clips_on_track, place_shots, SNAPSHOT_KEYS)
 from .titles import (insert_fusion_title, insert_fusion_composition, style_text_plus, text_placeholders,
                      title_fitted_to_clip, fusion_vignette_layer)
 from .markers import beat_markers
 from .audio import (sync_external_audio, set_clip_audio_mapping, remap_timeline_audio_items, audio_crossfades,
                     place_music, DIALOGUE_MONO_CAMERA_STEREO)
 from .transcription import transcribe_clip
-from .edit import punch_in_clips, alternate_punch_ins
+from .edit import punch_in_clips, alternate_punch_ins, freeze_item
 from .color import grade_all_clips, set_input_color_space, export_stills
 from .render import render_frame_tiff, render_timeline_mp4
 from .gfx import create_gfx_timeline_from_clip
@@ -33,14 +33,14 @@ __all__ = [
     "map_timeline", "backup_timeline", "place_playhead", "refresh_timeline",
     "walk_folders", "list_bins", "find_bin", "find_clip", "import_to_bin", "import_file_once", "replace_clip_file", "cleanup_scratch",
     "build_cut_from_list", "close_gap_ripple", "find_destination_track", "insert_fusion_comp_at",
-    "nest_timeline_over_placeholder", "swap_gfx_clip", "place_clips_on_track", "SNAPSHOT_KEYS",
+    "nest_timeline_over_placeholder", "swap_gfx_clip", "place_clips_on_track", "place_shots", "SNAPSHOT_KEYS",
     "insert_fusion_title", "insert_fusion_composition", "style_text_plus", "text_placeholders", "title_fitted_to_clip",
     "fusion_vignette_layer",
     "beat_markers",
     "sync_external_audio", "set_clip_audio_mapping", "remap_timeline_audio_items", "audio_crossfades", "place_music",
     "DIALOGUE_MONO_CAMERA_STEREO",
     "transcribe_clip",
-    "punch_in_clips", "alternate_punch_ins",
+    "punch_in_clips", "alternate_punch_ins", "freeze_item",
     "grade_all_clips", "set_input_color_space", "export_stills",
     "render_frame_tiff", "render_timeline_mp4",
     "create_gfx_timeline_from_clip",

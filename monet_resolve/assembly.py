@@ -295,3 +295,42 @@ def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zo
         out.append((it.GetName(), it.GetStart() - s, it.GetDuration(), it.GetSourceStartFrame(), it.GetSourceEndFrame()))
     save(resolve)
     return out
+
+
+def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], color: Optional[str] = "Cyan",
+                fps: int = 24) -> List[Dict]:
+    """Append a shot list of source ranges onto `track`: wide shots, close-ups (zoom, pan, tilt) and freeze frames.
+
+    Each shot is a dict: `name`, `record` (frame relative to the timeline start), `clip` (MediaPoolItem),
+    `src_in`, `src_out` (the clip's own frames; a 60p range lands `int(n * 0.4)` frames on a 24p timeline),
+    optional `props` (Edit-page properties for `SetProperties`, e.g. ZoomX/ZoomY/Pan/Tilt) and optional
+    `freeze` (True freezes the shot on its first source frame with `edit.freeze_item`, duration unchanged).
+    Close-up framing: with the image fitted to the frame at scale f (f = 2160 / source height for a wider-
+    than-16:9 source) and zoom z, a source point (cx, cy) is centred with `Pan = -(cx - w/2) * f * z` and
+    `Tilt = (cy - h/2) * f * z` (Tilt positive moves the image up). Video only (`mediaType: 1`), names via
+    `clean_name`, colour `color`. Saves. Returns [{"name", "start", "duration", "source", "frozen"}].
+    Worked 2026-09-14: ten shots over five placeholders on the Raycast AI Update edit (wide, hard cut to a
+    2.6x close-up, native freeze to fill the slot).
+    """
+    from .edit import freeze_item
+    mp = project.GetMediaPool()
+    s = timeline.GetStartFrame()
+    project.SetCurrentTimeline(timeline)
+    out = []
+    for sh in shots:
+        r = mp.AppendToTimeline([{"mediaPoolItem": sh["clip"], "startFrame": sh["src_in"], "endFrame": sh["src_out"],
+                                  "trackIndex": track, "recordFrame": s + sh["record"], "mediaType": 1}])
+        it = r[0] if r else None
+        if not it:
+            out.append({"name": sh["name"], "start": sh["record"], "duration": 0, "source": None, "frozen": None})
+            continue
+        it.SetName(clean_name(sh["name"]))
+        if color:
+            it.SetClipColor(color)
+        if sh.get("props"):
+            it.SetProperties(sh["props"])
+        fz = freeze_item(timeline, it, fps=fps)["ok"] if sh.get("freeze") else None
+        out.append({"name": it.GetName(), "start": it.GetStart() - s, "duration": it.GetDuration(),
+                    "source": (it.GetSourceStartFrame(), it.GetSourceEndFrame()), "frozen": fz})
+    save(resolve)
+    return out

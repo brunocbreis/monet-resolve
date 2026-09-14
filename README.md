@@ -25,7 +25,7 @@ Importing the package does not connect; `connect()` does, and raises `ResolveNot
 
     python -m monet_resolve.run scripts/map_project.py
 
-The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 31 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
+The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 32 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
 
 ## Frames
 
@@ -56,6 +56,7 @@ Assembly:
     mr.nest_timeline_over_placeholder(resolve, project, t, nested_item, track=3, placeholder_start=920, placeholder_track=2)
     mr.swap_gfx_clip(resolve, project, "/path/harness-4k-v20.mov", mr.find_bin(mp, "gfx"), gfx_timeline, frames=274)
     mr.place_clips_on_track(resolve, project, t, rec_clip, track=4, clips=[("REC - Automations tab", 2051, 1638, 1926)], zoom=1.155, color="Cyan", track_name="SCREEN RECS")
+    mr.place_shots(resolve, project, t, track=4, shots=[{"name": "REC - Examples list (close-up, freeze)", "record": 2312, "clip": rec_clip, "src_in": 2190, "src_out": 2378, "props": {"ZoomX": 2.6, "ZoomY": 2.6, "Pan": -103.6, "Tilt": 226.7}, "freeze": True}])
 
 Titles and Fusion:
 
@@ -84,6 +85,7 @@ Edit-page attributes:
 
     mr.punch_in_clips(resolve, project, t, [(898, "L04b pickup")], zoom=1.3, tilt=-250.0)
     mr.alternate_punch_ins(resolve, project, t)
+    mr.freeze_item(t, item)   # speed 0 on the frame under the playhead, duration kept
 
 Color:
 
