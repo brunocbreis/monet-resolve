@@ -106,6 +106,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 - [x] SOLVED Frame-accurate take boundaries - the full-clip transcript drifts and merges repeated takes; `transcription.transcribe_timeline_range` renders the slot and transcribes that audio, `transcribe_words` polls with a fresh proxy because `GetTranscription` stays None on the proxy that started the job (2026-09-14).
 
+- [x] SOLVED Insert a gap / lengthen a clip mid-cut with everything moving - `InsertFusionTitleIntoTimeline` with ALL tracks unlocked ripples every track; delete the title without ripple. `assembly.insert_gap_ripple` (2026-09-14). Before this the tail of the cut was re-appended item by item, which drops grades and crossfades.
+
 ### Transitions
 
 - [x] SOLVED Add an audio crossfade at every cut on a track - `AddTransition({'type': 'Cross Fade +3 dB', 'category': 'audio', 'position': 'end', 'alignment': 'center', 'duration': 4})`, iterating pairs where `x.GetEnd() == y.GetStart()`. `audio_crossfades.py`. `'Cross Fade 0 dB'` and `'Cross Fade -3 dB'` follow the UI labels, untested.

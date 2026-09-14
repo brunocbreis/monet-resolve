@@ -342,3 +342,35 @@ def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], c
                     "source": (it.GetSourceStartFrame(), it.GetSourceEndFrame()), "frozen": fz})
     save(resolve)
     return out
+
+
+def insert_gap_ripple(resolve, project, timeline, at: int, frames: int, other=None, fps: Optional[int] = None) -> Dict:
+    """Open `frames` of empty space at `at` (relative) on every track, moving everything after it later.
+
+    The inverse of `close_gap_ripple`. The API has no insert-gap call, but `InsertFusionTitleIntoTimeline`
+    is a true insert edit: with every video and audio track UNLOCKED it ripples all of them (with the other
+    tracks locked it ripples only its own, which is how it was always used before). So: unlock everything,
+    insert a `frames`-long Text+ at `at` on the destination track, delete it without ripple. Clips that
+    span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
+    them afterwards. Titles need a loaded timeline: pass `other` to refresh first. Saves.
+    Returns {"inserted_on": (track type, index), "end_before", "end_after"}. Worked 2026-09-14 (six frames
+    after the Thomas line on Cut v3: V1, V2, V4, A1, A2 and the A3 cue all moved; grades and comps untouched).
+    """
+    from .timelines import refresh_timeline
+    from .titles import insert_fusion_title
+    project.SetCurrentTimeline(timeline)
+    if other is not None:
+        refresh_timeline(project, timeline, other)
+    resolve.OpenPage("edit")
+    s = timeline.GetStartFrame()
+    end_before = timeline.GetEndFrame() - s
+    for i in range(1, timeline.GetTrackCount("video") + 1):
+        timeline.SetTrackLock("video", i, False)
+    for i in range(1, timeline.GetTrackCount("audio") + 1):
+        timeline.SetTrackLock("audio", i, False)
+    it = insert_fusion_title(timeline, at, frames, fps)
+    where = it.GetTrackTypeAndIndex() if it else None
+    if it:
+        timeline.DeleteClips([it], False)
+    save(resolve)
+    return {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s}
