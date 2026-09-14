@@ -18,7 +18,7 @@ from .titles import (insert_fusion_title, insert_fusion_composition, style_text_
 from .markers import beat_markers
 from .audio import (sync_external_audio, set_clip_audio_mapping, remap_timeline_audio_items, audio_crossfades,
                     place_music, DIALOGUE_MONO_CAMERA_STEREO)
-from .transcription import transcribe_clip
+from .transcription import transcribe_clip, transcribe_words, transcribe_timeline_range
 from .edit import punch_in_clips, alternate_punch_ins, freeze_item
 from .color import grade_all_clips, set_input_color_space, export_stills
 from .render import render_frame_tiff, render_timeline_mp4
@@ -39,7 +39,7 @@ __all__ = [
     "beat_markers",
     "sync_external_audio", "set_clip_audio_mapping", "remap_timeline_audio_items", "audio_crossfades", "place_music",
     "DIALOGUE_MONO_CAMERA_STEREO",
-    "transcribe_clip",
+    "transcribe_clip", "transcribe_words", "transcribe_timeline_range",
     "punch_in_clips", "alternate_punch_ins", "freeze_item",
     "grade_all_clips", "set_input_color_space", "export_stills",
     "render_frame_tiff", "render_timeline_mp4",

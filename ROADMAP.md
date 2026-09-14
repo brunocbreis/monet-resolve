@@ -104,6 +104,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [UI] UI-ONLY Dynamic zoom framing - only `DynamicZoomEnabled` and `DynamicZoomEase` are exposed, which gives the default slight push in. Bruno drags the start and end rectangles in the viewer.
 - [UI] UI-ONLY Conform lock, offline reference on a timeline item - no call beyond `SetSourceAudioChannelMapping`. Bruno sets them from the clip's right-click menu.
 
+- [x] SOLVED Frame-accurate take boundaries - the full-clip transcript drifts and merges repeated takes; `transcription.transcribe_timeline_range` renders the slot and transcribes that audio, `transcribe_words` polls with a fresh proxy because `GetTranscription` stays None on the proxy that started the job (2026-09-14).
+
 ### Transitions
 
 - [x] SOLVED Add an audio crossfade at every cut on a track - `AddTransition({'type': 'Cross Fade +3 dB', 'category': 'audio', 'position': 'end', 'alignment': 'center', 'duration': 4})`, iterating pairs where `x.GetEnd() == y.GetStart()`. `audio_crossfades.py`. `'Cross Fade 0 dB'` and `'Cross Fade -3 dB'` follow the UI labels, untested.
