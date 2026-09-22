@@ -5,7 +5,7 @@ vocabulary, no subclassing. Our functions take those objects as arguments and re
 Importing this package does not connect to Resolve; call `connect()` for that.
 """
 from .connect import connect, ResolveNotRunning
-from . import _util, projects, timelines, media, assembly, titles, markers, audio, transcription, edit, color, render, gfx
+from . import _util, projects, timelines, media, assembly, titles, markers, audio, transcription, edit, color, render, gfx, transitions
 from ._util import tc, timeline_fps, find_timeline, list_timelines, items, clean_name, track_locks, save
 from .projects import load_project, map_project
 from .timelines import map_timeline, backup_timeline, place_playhead, refresh_timeline
@@ -23,11 +23,13 @@ from .edit import punch_in_clips, alternate_punch_ins, freeze_item
 from .color import grade_all_clips, set_input_color_space, export_stills
 from .render import render_frame_tiff, render_timeline_mp4
 from .gfx import create_gfx_timeline_from_clip
+from .transitions import build_push, add_push_transition
 
 __version__ = "0.1.0"
 __all__ = [
     "connect", "ResolveNotRunning",
-    "projects", "timelines", "media", "assembly", "titles", "markers", "audio", "transcription", "edit", "color", "render", "gfx",
+    "projects", "timelines", "media", "assembly", "titles", "markers", "audio", "transcription", "edit", "color", "render", "gfx", "transitions",
+    "build_push", "add_push_transition",
     "tc", "timeline_fps", "find_timeline", "list_timelines", "items", "clean_name", "track_locks", "save",
     "load_project", "map_project",
     "map_timeline", "backup_timeline", "place_playhead", "refresh_timeline",
