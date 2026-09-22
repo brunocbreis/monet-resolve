@@ -4,8 +4,10 @@ from typing import Dict, Optional
 
 from ._util import save
 
-DIRECTIONS = {  # axis driven by the progress, sign of travel for the outgoing clip
-    "right": ("X", 1), "left": ("X", -1), "up": ("Y", 1), "down": ("Y", -1),
+DIRECTIONS = {  # axis driven by the progress, sign of travel for the outgoing clip; names follow the Direction
+    # control of Resolve's simple Push: "right" = the incoming clip comes in from the right and pushes the
+    # outgoing one out to the left (Bruno's push, 2026-09-22).
+    "right": ("X", -1), "left": ("X", 1), "up": ("Y", -1), "down": ("Y", 1),
 }
 
 
@@ -16,9 +18,9 @@ def build_push(comp, direction: str = "right", ease_in: str = "Cubic", ease_out:
     "category": "fusion", ...})`: Resolve gives it `MediaIn1` (outgoing), `MediaIn2` (incoming) and
     `MediaOut1`; the dissolve group and its lookup are deleted and replaced by an Anim Curves modifier
     (`LUTLookup`, Source "Transition" so it follows the transition length, Curve "Easing", cubic in and out)
-    driving an XY Path on a Transform per clip (outgoing centre 0.5 → 1.5 on the travel axis, incoming one
-    frame behind via the expression `PushOutPath.X - 1`), merged and sent to MediaOut. `direction` is
-    right/left/up/down (where the picture travels). Call with the Fusion page open. Returns the tool names.
+    driving an XY Path on a Transform per clip (outgoing centre 0.5 → -0.5 on the travel axis for "right",
+    incoming one frame behind via the expression `PushOutPath.X + 1`), merged and sent to MediaOut. `direction`
+    is right/left/up/down in the sense of Resolve's Push Direction control: the side the incoming clip enters from. Call with the Fusion page open. Returns the tool names.
     Worked 2026-09-22 (Resolve 21.1) on a 16-frame transition.
     """
     axis, sign = DIRECTIONS[direction]
@@ -33,8 +35,9 @@ def build_push(comp, direction: str = "right", ease_in: str = "Cubic", ease_out:
         tool.SetAttrs({"TOOLS_Name": name})
         return tool
     prog = named(comp.AddTool("LUTLookup", -1, -1), "PushProgress")
+    # a negative Scale is ignored by the modifier, so the reverse travel uses Invert (1 - progress)
     for k, v in (("Source", "Transition"), ("Curve", "Easing"), ("EaseIn", ease_in), ("EaseOut", ease_out),
-                 ("Scaling", 1), ("Scale", sign), ("Offset", 0.5)):
+                 ("Scaling", 1), ("Scale", 1), ("Invert", 0 if sign > 0 else 1), ("Offset", 0.5 if sign > 0 else -0.5)):
         prog.SetInput(k, v)
     xf_out = named(comp.AddTool("Transform", 0, 0), "PushOut")
     xf_in = named(comp.AddTool("Transform", 0, 2), "PushIn")
