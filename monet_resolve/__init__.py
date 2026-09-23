@@ -5,7 +5,7 @@ vocabulary, no subclassing. Our functions take those objects as arguments and re
 Importing this package does not connect to Resolve; call `connect()` for that.
 """
 from .connect import connect, ResolveNotRunning
-from . import _util, projects, timelines, media, assembly, titles, markers, audio, transcription, edit, color, render, gfx, transitions
+from . import _util, projects, timelines, media, assembly, titles, markers, audio, transcription, edit, color, render, gfx, transitions, qc
 from ._util import tc, timeline_fps, find_timeline, list_timelines, items, clean_name, track_locks, save
 from .projects import load_project, map_project
 from .timelines import map_timeline, backup_timeline, place_playhead, refresh_timeline
