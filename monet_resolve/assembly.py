@@ -374,3 +374,110 @@ def insert_gap_ripple(resolve, project, timeline, at: int, frames: int, other=No
         timeline.DeleteClips([it], False)
     save(resolve)
     return {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s}
+
+
+def _place_range(mp, timeline, src: Dict, a: float, b: float, record: int, track: int, media_type: int,
+                 tl_fps: float = 24.0, frames: Optional[int] = None):
+    """Append the session range a..b (seconds) of one source at `record` (absolute) on `track`, `frames` long.
+
+    `src` = {"clip", "offset" (session seconds at source frame 0), "fps"}. The source range is sized so the item
+    lands exactly `frames` timeline frames (default round((b - a) * tl_fps)); a rate-mapped append can land one
+    frame off, so the end frame is nudged and the item re-appended until the duration matches (two tries).
+    Returns the TimelineItem or None.
+    """
+    n = frames if frames is not None else int(round((b - a) * tl_fps))
+    f = float(src["fps"])
+    sin = int(round((a - src["offset"]) * f))
+    send = sin + int(round(n * f / tl_fps)) - 1
+    it = None
+    for _ in range(3):
+        new = mp.AppendToTimeline([{"mediaPoolItem": src["clip"], "startFrame": max(sin, 0), "endFrame": send,
+                                    "trackIndex": track, "recordFrame": record, "mediaType": media_type}])
+        it = new[0] if new else None
+        if not it:
+            return None
+        d = it.GetDuration()
+        if d == n:
+            return it
+        timeline.DeleteClips([it], False)
+        send += n - d
+    new = mp.AppendToTimeline([{"mediaPoolItem": src["clip"], "startFrame": max(sin, 0), "endFrame": send,
+                                "trackIndex": track, "recordFrame": record, "mediaType": media_type}])
+    return new[0] if new else None
+
+
+def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Dict], segments: Sequence[Dict],
+                     timeline_bin=None, video_tracks: Sequence[str] = ("A-ROLL", "B-ROLL", "TITLES"),
+                     audio_tracks: Sequence[Tuple[str, str]] = (("stereo", "Dialogue 1"), ("stereo", "Dialogue 2"), ("stereo", "Screen audio"))) -> Dict:
+    """Build a timeline from synced multi-source recordings (a call recorded as separate files) by session time.
+
+    `sources` maps a key to {"clip": MediaPoolItem, "offset": session seconds at the clip's frame 0, "fps"}: for
+    StreamYard isolated recordings the offset is the one in the file name, for a camera it comes from waveform
+    correlation against one of the webcams. A source with its own clock (an intro or outro take) uses offset 0.
+    Each segment is {"a", "b" (session seconds), "video": key (V1 angle) or None, "audio": [(key, audio_track)],
+    "name", "color", "props" (V1 SetProperty dict, e.g. a punch-in), "marker": (name, color, note),
+    "overlays": [{"src", "a", "b", "at" (session second inside the segment where it starts, default a), "track",
+    "props", "name", "color", "audio_track"}], "gap": frames of black after}. Segments are laid end to end;
+    every item of a segment is placed at an explicit record frame with an exact length, so video and both
+    dialogue tracks stay frame-aligned across rate conversions (25p and 30p sources on a 24p timeline).
+    Creates the timeline in `timeline_bin`, names tracks, saves. Returns {"length", "placed", "failed"}.
+    Worked 2026-09-23 on the Luke and Dmitry commissioned-app cuts.
+    """
+    mp = project.GetMediaPool()
+    root = mp.GetRootFolder()
+    resolve.OpenPage("edit")
+    if timeline_bin is not None:
+        mp.SetCurrentFolder(timeline_bin)
+    t = mp.CreateEmptyTimeline(timeline_name)
+    mp.SetCurrentFolder(root)
+    project.SetCurrentTimeline(t)
+    fps = float(t.GetSetting("timelineFrameRate"))
+    s = t.GetStartFrame()
+    while t.GetTrackCount("video") < len(video_tracks):
+        t.AddTrack("video")
+    for i, n in enumerate(video_tracks):
+        t.SetTrackName("video", i + 1, n)
+    while t.GetTrackCount("audio") < len(audio_tracks):
+        t.AddTrack("audio", audio_tracks[t.GetTrackCount("audio")][0])
+    for i, (_, n) in enumerate(audio_tracks):
+        t.SetTrackName("audio", i + 1, n)
+    pos, placed, failed = 0, [], []
+    for sg in segments:
+        n = int(round((sg["b"] - sg["a"]) * fps))
+        rec = s + pos
+        if sg.get("video"):
+            it = _place_range(mp, t, sources[sg["video"]], sg["a"], sg["b"], rec, 1, 1, fps, n)
+            if it:
+                if sg.get("name"):
+                    it.SetName(clean_name(sg["name"]))
+                if sg.get("color"):
+                    it.SetClipColor(sg["color"])
+                for k, v in (sg.get("props") or {}).items():
+                    it.SetProperty(k, v)
+            else:
+                failed.append((sg.get("name"), "video"))
+        for key, tr in sg.get("audio", []):
+            it = _place_range(mp, t, sources[key], sg["a"], sg["b"], rec, tr, 2, fps, n)
+            if not it:
+                failed.append((sg.get("name"), key))
+        for ov in sg.get("overlays", []):
+            at = ov.get("at", ov["a"])
+            orec = rec + int(round((at - sg["a"]) * fps))
+            it = _place_range(mp, t, sources[ov["src"]], ov["a"], ov["b"], orec, ov.get("track", 2), 1, fps)
+            if it:
+                if ov.get("name"):
+                    it.SetName(clean_name(ov["name"]))
+                it.SetClipColor(ov.get("color", "Blue"))
+                for k, v in (ov.get("props") or {}).items():
+                    it.SetProperty(k, v)
+            else:
+                failed.append((ov.get("name"), "overlay"))
+            if ov.get("audio_track"):
+                _place_range(mp, t, sources[ov["src"]], ov["a"], ov["b"], orec, ov["audio_track"], 2, fps)
+        if sg.get("marker"):
+            mn, mc, note = sg["marker"]
+            t.AddMarker(pos, mc, mn, note, 1)
+        placed.append((sg.get("name"), pos, n))
+        pos += n + int(sg.get("gap", 0))
+    save(resolve)
+    return {"length": pos, "placed": len(placed), "failed": failed}
