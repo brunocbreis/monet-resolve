@@ -242,6 +242,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ## Quirks
 
+- [!] QUIRK A stereo audio track changed to Mono in the UI becomes a LINKED PAIR of mono tracks (L and R). `DeleteClips` on the clips of one track deletes the partner clips too, and `DeleteTrack` then removes both tracks. It wiped Pedro's dialogue on 2026-09-23 (restored from a snapshot). Never delete from one track of a pair; build dialogue on mono tracks from the start, and move clips with place-verify-then-delete.
 - [!] QUIRK `ProjectManager.LoadProject("raycast-ai-updates")` from a script crashed Resolve 21.1 (2026-09-23), with no dialog and no error, only a dead process. Don't switch projects to borrow a grade: use the DRX and CDL values recorded in `scripts/grade_all_clips.py` or a still exported by hand.
 - [!] QUIRK `MediaPoolItem.TranscribeAudio` returns False immediately while the Deliver page is open (for example right after a render) - `resolve.OpenPage("edit")`, sleep 1.5 s, then transcribe; poll `GetTranscription` on a fresh clip fetched from the bin (2026-09-23).
 - [!] QUIRK Text+ element 3 ("Shadow") in `library/components/lower-third-left.comp` is already live on `TxtName` - setting its color or softness recolors the name itself and disabling it hides the name; re-import the library comp to restore (2026-09-23).

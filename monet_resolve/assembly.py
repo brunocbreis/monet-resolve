@@ -408,7 +408,7 @@ def _place_range(mp, timeline, src: Dict, a: float, b: float, record: int, track
 
 def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Dict], segments: Sequence[Dict],
                      timeline_bin=None, video_tracks: Sequence[str] = ("A-ROLL", "B-ROLL", "TITLES"),
-                     audio_tracks: Sequence[Tuple[str, str]] = (("stereo", "Dialogue 1"), ("stereo", "Dialogue 2"), ("stereo", "Screen audio"))) -> Dict:
+                     audio_tracks: Sequence[Tuple[str, str]] = (("mono", "Dialogue 1"), ("mono", "Dialogue 2"), ("stereo", "Screen audio"))) -> Dict:
     """Build a timeline from synced multi-source recordings (a call recorded as separate files) by session time.
 
     `sources` maps a key to {"clip": MediaPoolItem, "offset": session seconds at the clip's frame 0, "fps"}: for
@@ -420,7 +420,9 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
     "props", "name", "color", "audio_track"}], "gap": frames of black after}. Segments are laid end to end;
     every item of a segment is placed at an explicit record frame with an exact length, so video and both
     dialogue tracks stay frame-aligned across rate conversions (25p and 30p sources on a 24p timeline).
-    Creates the timeline in `timeline_bin`, names tracks, saves. Returns {"length", "placed", "failed"}.
+    Dialogue tracks are mono by default; set each dialogue source clip's track_mapping to its one mic channel
+    (`{"1": {"channel_idx": [ch], "type": "mono"}}`) before building. Creates the timeline in `timeline_bin`,
+    names tracks, saves. Returns {"length", "placed", "failed"}.
     Worked 2026-09-23 on the Luke and Dmitry commissioned-app cuts.
     """
     mp = project.GetMediaPool()
@@ -437,6 +439,10 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
         t.AddTrack("video")
     for i, n in enumerate(video_tracks):
         t.SetTrackName("video", i + 1, n)
+    if t.GetTrackSubType("audio", 1) != audio_tracks[0][0]:
+        for kind, _ in audio_tracks:
+            t.AddTrack("audio", kind)
+        t.DeleteTrack("audio", 1)  # the default A1 is stereo and empty; the added tracks shift down
     while t.GetTrackCount("audio") < len(audio_tracks):
         t.AddTrack("audio", audio_tracks[t.GetTrackCount("audio")][0])
     for i, (_, n) in enumerate(audio_tracks):
