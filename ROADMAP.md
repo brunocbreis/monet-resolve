@@ -242,6 +242,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ## Quirks
 
+- [!] QUIRK `MediaPoolItem.TranscribeAudio` returns False immediately while the Deliver page is open (for example right after a render) - `resolve.OpenPage("edit")`, sleep 1.5 s, then transcribe; poll `GetTranscription` on a fresh clip fetched from the bin (2026-09-23).
+- [!] QUIRK Text+ element 3 ("Shadow") in `library/components/lower-third-left.comp` is already live on `TxtName` - setting its color or softness recolors the name itself and disabling it hides the name; re-import the library comp to restore (2026-09-23).
 - [!] QUIRK Marks are relative, timecode is absolute - `SetMarkInOut(start, end-1)` counts frames from the timeline start (0 = first frame); `SetCurrentTimecode` wants the absolute timecode (timeline starts at 01:00:00:00); `AddMarker(frame)` is relative too. The first title pass added the start offset to the marks and landed wrong (0e05d2ae 09:10:34, 09:11:16, 09:11:44).
 - [!] QUIRK Markers added while appending drift after the 25p to 24p duration rounding - rebuild them from `item.GetStart() - start` after the build (0e05d2ae 09:12:28).
 - [!] QUIRK Page switches are load-bearing - title and composition inserts need the Edit page (`OpenPage('cut')` then `OpenPage('edit')` before the first insert); comp edits need the Fusion page; `ApplyGradeFromDRX`, `SetCDL`, `ExportCurrentFrameAsStill` need the Color page with a 1 to 1.5 s sleep after the switch (0e05d2ae 09:04:56, 09:07:36, 09:12:51, 09:22:02).
