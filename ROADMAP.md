@@ -242,6 +242,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ## Quirks
 
+- [!] QUIRK `ProjectManager.LoadProject("raycast-ai-updates")` from a script crashed Resolve 21.1 (2026-09-23), with no dialog and no error, only a dead process. Don't switch projects to borrow a grade: use the DRX and CDL values recorded in `scripts/grade_all_clips.py` or a still exported by hand.
 - [!] QUIRK `MediaPoolItem.TranscribeAudio` returns False immediately while the Deliver page is open (for example right after a render) - `resolve.OpenPage("edit")`, sleep 1.5 s, then transcribe; poll `GetTranscription` on a fresh clip fetched from the bin (2026-09-23).
 - [!] QUIRK Text+ element 3 ("Shadow") in `library/components/lower-third-left.comp` is already live on `TxtName` - setting its color or softness recolors the name itself and disabling it hides the name; re-import the library comp to restore (2026-09-23).
 - [!] QUIRK Marks are relative, timecode is absolute - `SetMarkInOut(start, end-1)` counts frames from the timeline start (0 = first frame); `SetCurrentTimecode` wants the absolute timecode (timeline starts at 01:00:00:00); `AddMarker(frame)` is relative too. The first title pass added the start offset to the marks and landed wrong (0e05d2ae 09:10:34, 09:11:16, 09:11:44).
