@@ -5,7 +5,6 @@ CDLS = [{"NodeIndex": 1, "Slope": "0.69 0.69 0.69", "Offset": "0 0 0", "Power": 
 t = mr.find_timeline(project, TIMELINE)
 result = mr.color.grade_all_clips(resolve, project, t, DRX, NODES, CDLS, track=TRACK)
 
-# Viewer-matched variant (2026-09-23, after "Use Mac display color profiles for viewers" was turned on):
-# tuned on rendered frames against the delivered Yann/Alexander videos (Pedro's room, Sony camera).
-CDLS_DISPLAY_MATCHED = [{"NodeIndex": 1, "Slope": "0.755 0.72 0.70", "Offset": "0 0 0", "Power": "1 1 1", "Saturation": 1.0},
-                        {"NodeIndex": 3, "Slope": "1.62 1.62 1.62", "Offset": "-0.13 -0.13 -0.13", "Power": "1.10 1.10 1.10", "Saturation": 1.0}]
+# 2026-09-23: this grade expects the Sony clips' Input Color Space = S-Log2 (set_input_color_space.py) FIRST.
+# Without it the DRX works on flat log footage. After the display-profile change, the small trim that matched
+# the delivered look on Pedro's room: node 1 slope 0.635, node 3 saturation 1.22 (node 3 otherwise as above).
