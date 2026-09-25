@@ -23,12 +23,12 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 
 | Status | Count |
 |---|---|
-| `[x] SOLVED` | 33 |
-| `[~] WORKAROUND` | 32 |
-| `[?] UNTESTED` | 47 |
+| `[x] SOLVED` | 44 |
+| `[~] WORKAROUND` | 35 |
+| `[?] UNTESTED` | 46 |
 | `[ ] OPEN` | 1 |
-| `[UI] UI-ONLY` | 40 |
-| `[!] QUIRK` | 38 |
+| `[UI] UI-ONLY` | 38 |
+| `[!] QUIRK` | 54 |
 
 Three facts shape most routes below. The `run_script` sandbox has no filesystem, but Resolve reads and writes paths on the Mac, so anything file-based (DRX, .comp, LUT, stills, renders, presets) works once the assistant writes the file with Bash and passes the absolute path. Frame references are mixed: `SetMarkInOut` and `AddMarker` take frames relative to the timeline start; `recordFrame`, `SetCurrentTimecode`, render `MarkIn`/`MarkOut`, `GetStart`/`GetEnd` are absolute. Nothing moves, trims, or splits an existing timeline item; every change to an item's position or extent is "delete it, re-append the source range at the new record frame", which keeps the media pool link but loses whatever lived on the item unless restored (comps via `ExportFusionComp`/`ImportFusionComp`, grades via `CopyGrades`, speed via `SetSpeed`, keyframes lost).
 
@@ -134,6 +134,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ### Titles and Fusion
 
+- [x] SOLVED Copy a Text title (Edit page "Text", stored as "Rich") from another project with new words - export the project to .drp without loading it, take the `Sm2TiGenerator` element, rewrite its text runs, import through a DRT, wrap in a Fusion clip to append anywhere. `richtext.py`; byte-identical to the hand-built titles that rendered right (2026-09-24).
+
 - [x] SOLVED Insert a Text+ at a frame with an exact length on a track - lock the other tracks, `SetMarkInOut(start, end - 1)` relative, `SetCurrentTimecode(absoluteTC)`, `InsertFusionTitleIntoTimeline('Text+')`, `ClearMarkInOut`. `text_placeholders.py`; `title_fitted_to_clip.py` (not yet run as a whole file) fits one to a clip found by name.
 - [x] SOLVED Set the text, font, style, size, and color of a Text+ - no Inspector call; `resolve.OpenPage('fusion')`, `comp = item.GetFusionCompByIndex(1)` (or `AddFusionComp()` when the count is 0), find the tool with `comp.FindToolByID('TextPlus')` or by `tool.ID`, `tp.SetInput('StyledText', ...)`, `'Font'` (`'Inter 28pt'`), `'Style'`, `'Size'`, `'Red1'/'Green1'/'Blue1'`, then `OpenPage('edit')`. `text_placeholders.py` (0e05d2ae 09:07:14 failed from the Edit page, 09:07:36 fixed).
 - [x] SOLVED Insert a native Fusion composition of exact length at a frame - same marks recipe with `InsertFusionCompositionIntoTimeline()`. `fusion_vignette_layer.py`; `insert_fusion_comp_at.py` adds the no-ripple snapshot (not yet run as a whole file).
@@ -190,7 +192,9 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [x] SOLVED Edit inside a nested timeline and have the parent follow - the parent references the timeline, so swapping the clip inside the GFX timeline updates every cut that nests it. `swap_gfx_clip.py`, `create_gfx_timeline_from_clip.py`.
 - [?] UNTESTED Decompose a compound clip in place - no call. `GetMediaPoolItem().GetTimeline()` is documented for timeline entries and open for compound clips; read its items, re-append them onto the parent at `compoundStart + itemOffset`, delete the compound item. Or Bruno right-clicks, Decompose in Place.
 - [?] UNTESTED Open a compound clip to edit inside - `SetCurrentTimeline(mpi.GetTimeline())` works for timelines; for compound clips the same ambiguity applies.
-- [UI] UI-ONLY Switch multicam angles at cuts by hand - no call picks an angle or cuts between angles. Bruno uses the multicam viewer. The automated alternative is `PerformMulticamSmartSwitch({...})` then `FlattenMulticam(resolve.FLATTEN_MULTICAM_COPY_GRADE)`.
+- [~] WORKAROUND Set a multicam item's angle from a script - no API call; `PerformMulticamSmartSwitch` with a `wideAngleID` returned None and changed nothing, and no hidden method is registered. Route: color the items with a spare clip color, Timeline > Select Clips > By Clip Color, Clip > Multicam Switch > Switch to Angle N through the menu bar (`ui.py`), restore colors. `multicam.set_angles` (steps ran 2026-09-24 on two timelines; the combined function is new).
+- [x] SOLVED Swap clips cut from source files for the multicam, in place - `multicam.swap_to_multicam` maps each item's source frame to the multicam frame through both Start TCs, re-appends at the same record frame with properties restored (2026-09-24, 39 and 38 items, zero duration mismatches).
+- [~] WORKAROUND Grade a multicam angle once for every use - the API cannot see inside a multicam. Grab a still of the finished grade (`timeline.GrabStill()`), select the multicam in the media pool (`MediaPool.SetSelectedClip`), `ui.open_selected_media_pool_clip_in_timeline()` (Open in Timeline shortcut, unlocked screen), `ui.switch_page("Color")`, `ui.apply_grade_from_still()`. Verify by rendering the parent timeline: the angle's grade shows on every item with no item-level nodes (2026-09-24).
 
 ### Subtitles and transcription
 
@@ -225,6 +229,12 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ### UI-only mechanics
 
+- [x] SOLVED Press any menu item from a script - macOS accessibility: `tell application "System Events" to tell process "Resolve" to click menu item ...` with the full menu path. Precise, needs no screen coordinates, and works while the screen is locked. `ui.menu(path)`, `ui.menu_items(path)` to list spellings (2026-09-24).
+- [x] SOLVED Close timeline tabs - no API call. `project.SetCurrentTimeline(t)` then File > Close Timeline, per tab. `ui.close_current_timeline()` (2026-09-24).
+- [x] SOLVED Select a set of timeline items - no API call. Give them a spare clip color, `ui.select_clips_by_color(color)` (Timeline > Select Clips > By Clip Color), restore colors after. `timeline.GetSelectedClips()` confirms the selection (2026-09-24).
+- [x] SOLVED Run the AI Audio Assistant (auto mix) - Timeline > AI Tools > Audio Assistant… and its Auto Mix button, both reachable through accessibility; `ui.run_audio_assistant()` waits for the dialog to close (2026-09-24).
+- [?] UNTESTED Link clips from a script - Clip > Link Clips reported disabled to accessibility for every selection tried (two audio items, video plus audio), even though the selection was right; the UI state may refresh only when the menu is opened by a person.
+
 - [~] WORKAROUND Match frame, reveal in media pool - `item.GetMediaPoolItem()` and `GetSourceStartFrame()` give the same information as data. No script.
 - [UI] UI-ONLY Play, stop, loop, play around, JKL - no call. Keyboard. (Fusion's `comp:Play()` drives the Fusion viewer only, untested from Resolve.)
 - [UI] UI-ONLY Zoom or scroll the timeline, zoom to fit, viewer zoom, safe areas, overlays - no call.
@@ -241,6 +251,19 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [~] WORKAROUND Export subtitles, markers, or a transcript standalone - through `GetMarkers()`/`GetTranscription()` plus a Bash write (see Markers, Subtitles).
 
 ## Quirks
+
+- [!] QUIRK Menu actions and keystrokes differ on a locked screen - accessibility menu clicks work while the Mac is locked; keystrokes do not arrive, and the window list is empty. A keystroke that silently failed makes the next menu action hit the wrong target (an Apply Grade landed on the timeline's current clip). Run keystroke steps with the screen unlocked, and verify the target before the destructive menu step (2026-09-24).
+- [!] QUIRK Multicam item names are stale - after an angle switch `GetName()` keeps the old "Angle X" until the timeline reloads. Verify angles on a rendered frame (2026-09-24).
+- [!] QUIRK Multicam angle numbers follow angle names alphabetically - whatever order the clips were passed to `CreateMulticamClip`. `multicam.angle_numbers` (2026-09-24).
+- [!] QUIRK Menu items that need the Edit page - Switch to Angle is disabled on the Deliver and Color pages; a render (`render_frame_tiff`) leaves you on Deliver, so switch back before menu actions (2026-09-24).
+- [!] QUIRK Stills append at most 24 frames - `AppendToTimeline` ignores a longer endFrame for a still image. `clips.place_still` appends pieces and joins them with `CreateFusionClip` (2026-09-24).
+- [!] QUIRK Appends from 25p/30p sources into 24 fps land one source frame off - check `GetSourceStartFrame()` after the append and retry a neighboring start frame. `clips.append_exact` (2026-09-24).
+- [!] QUIRK Through-edit merges need exact source continuity - a 1-2 frame tolerance also joins two different takes and slides the second out of sync. `clips.merge_through_edits` joins only exact continuations (2026-09-24).
+- [!] QUIRK A delete range that picks items by start frame takes J-cut audio of the next shot - an audio item that starts inside the range but belongs to the following picture. List with `clips.items_in_range(mode="within")` and read the list before deleting (2026-09-24).
+- [!] QUIRK `SetCDL` replaces a node's primaries - on a node that already holds offsets or gains (a DRX's exposure node) it wipes them; on a node with default primaries it adds cleanly. Put per-shoot exposure on a node whose identity CDL leaves the render unchanged: test with Slope 1, Power 1 first (2026-09-24).
+- [!] QUIRK A ColorGroup's pre-clip graph refuses `ApplyGradeFromDRX` - returned False with the Color page open (2026-09-24).
+- [!] QUIRK Audio mapping reads None on transitions - `GetItemListInTrack('audio', n)` includes crossfades; skip items whose `GetSourceAudioChannelMapping()` is None (2026-09-24).
+- [!] QUIRK A pool clip's mapping can differ from its items' mappings on purpose - dialogue items set mono per item while the pool clip stays stereo. Copy pool mappings onto items only for clips with `linked_audio` (`audio.resync_item_mappings`) (2026-09-24).
 
 - [!] QUIRK A stereo audio track changed to Mono in the UI becomes a LINKED PAIR of mono tracks (L and R). `DeleteClips` on the clips of one track deletes the partner clips too, and `DeleteTrack` then removes both tracks. It wiped Pedro's dialogue on 2026-09-23 (restored from a snapshot). Never delete from one track of a pair; build dialogue on mono tracks from the start, and move clips with place-verify-then-delete.
 - [!] QUIRK `ProjectManager.LoadProject("raycast-ai-updates")` from a script crashed Resolve 21.1 (2026-09-23), with no dialog and no error, only a dead process. Don't switch projects to borrow a grade: use the DRX and CDL values recorded in `scripts/grade_all_clips.py` or a still exported by hand.

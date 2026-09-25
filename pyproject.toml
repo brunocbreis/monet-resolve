@@ -1,11 +1,14 @@
 [project]
 name = "monet-resolve"
-version = "0.1.0"
+version = "0.2.0"
 description = "The DaVinci Resolve scripting API plus the functions it is missing: no-ripple inserts, gap closing, titles fitted to clips, and more."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Bruno Reis" }]
+
+[project.optional-dependencies]
+richtext = ["zstandard"]
 
 [build-system]
 requires = ["setuptools>=61"]

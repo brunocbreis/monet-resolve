@@ -25,7 +25,7 @@ Importing the package does not connect; `connect()` does, and raises `ResolveNot
 
     python -m monet_resolve.run scripts/map_project.py
 
-The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 32 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
+The script runs with `resolve`, `project` and `mr` pre-bound, the same shape as the `run_script` MCP tool, and its `result` variable prints as JSON. The `scripts/` folder holds 38 task scripts with their parameters as UPPERCASE constants at the top; edit the constants and run.
 
 ## Frames
 
@@ -101,6 +101,31 @@ Render:
 GFX:
 
     mr.create_gfx_timeline_from_clip(resolve, project, "/path/projects-4k-v1.mov", mr.find_bin(mp, "gfx"), mr.find_bin(mp, ["timelines", "gfx"]), "GFX - Projects b-roll", t, track=3, record=1378, frames=303)
+
+Multicam (angles through the menu bar, see `ui` below):
+
+    log = mr.swap_to_multicam(resolve, project, t, mcam, {"guest-webcam.mp4": "Guest Webcam", "guest-screen.mp4": "Screen"})
+    nums = mr.angle_numbers(["Guest Webcam", "Screen"])
+    mr.set_angles(resolve, project, t, [(r["item"], nums[r["angle"]]) for r in log if "item" in r])
+
+Clip surgery:
+
+    mr.ripple_insert(resolve, project, t, at=6584, frames=108)           # markers move too
+    mr.continue_clip(resolve, project, t, item, frames=108, record=6584)  # same source, no jump
+    mr.merge_through_edits(resolve, project, t, 5400, 8700)              # exact continuations only
+    mr.place_still(resolve, project, t, icon_png, track=2, record=9333, frames=96)
+
+Text titles from another project (needs `pip install zstandard`):
+
+    gens = mr.generators_in_drp("/tmp/ep1.drp")            # after pm.ExportProject("ep1", "/tmp/ep1.drp")
+    drt = mr.title_drt(template_drt, gens[1]["xml"], "/tmp/lt.drt", "lower third", replace={"Yann": "Luke"})
+    clip = mr.import_title_as_clip(resolve, project, drt, "lower third")
+
+Menu bar (macOS accessibility; works with the screen locked, keystrokes excepted):
+
+    mr.ui.menu(["File", "Close Timeline"])
+    mr.ui.select_clips_by_color("Navy"); mr.ui.switch_multicam_angle(4)
+    mr.ui.run_audio_assistant()
 
 ## Relation to the official API
 

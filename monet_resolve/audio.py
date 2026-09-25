@@ -115,3 +115,34 @@ def place_music(resolve, project, timeline, track: int, music_bin,
         placed.append((it.GetName(), it.GetStart() - s, it.GetEnd() - s, it.GetProperty("AudioVolume"), it.GetFades()))
     save(resolve)
     return {"placed": placed, "cut_end": timeline.GetEndFrame() - s}
+
+
+def resync_item_mappings(project, timeline, tracks: Sequence[int] = ()) -> Dict:
+    """Make timeline audio items that come from a synced external recording use their clip's mapping.
+
+    A camera clip synced to a separate recorder (`sync_external_audio`, a `linked_audio` entry in its
+    mapping) can end up on the timeline mapped to the camera's scratch channel: moving items between
+    tracks or re-appending them keeps an old item mapping. For every item whose media pool clip has a
+    `linked_audio` entry, this sets the item's track_mapping to the clip's with
+    `SetSourceAudioChannelMapping`. Items without `linked_audio` are skipped on purpose: a plain webcam
+    clip's pool mapping can be stereo while its dialogue items were set mono per item. Transitions return
+    None for the mapping and are skipped. Returns {"fixed": [(track, start)], "ok": n}. Ran 2026-09-24.
+    """
+    project.SetCurrentTimeline(timeline)
+    s = timeline.GetStartFrame()
+    out = {"fixed": [], "ok": 0}
+    for tr in (tracks or range(1, timeline.GetTrackCount("audio") + 1)):
+        for x in timeline.GetItemListInTrack("audio", tr) or []:
+            m = x.GetMediaPoolItem()
+            cur = x.GetSourceAudioChannelMapping()
+            if not m or not cur:
+                continue
+            want = json.loads(m.GetAudioMapping() or "{}")
+            if not want.get("linked_audio"):
+                continue
+            if json.loads(cur).get("track_mapping") != want.get("track_mapping"):
+                x.SetSourceAudioChannelMapping(json.dumps({"track_mapping": want["track_mapping"]}))
+                out["fixed"].append((tr, x.GetStart() - s))
+            else:
+                out["ok"] += 1
+    return out
