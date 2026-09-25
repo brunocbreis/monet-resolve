@@ -81,7 +81,7 @@ def place_music(resolve, project, timeline, track: int, music_bin,
     """Lay music cues on an audio track with name, color, volume and fades.
 
     `cues` is [(name, clip_name, src_in, src_out, record, volume_db, fade_in, fade_out)]; `clip_name` is
-    looked up in `music_bin` (a Folder); `record` is frames from the timeline start; `src_out` is inclusive.
+    looked up in `music_bin` (a Folder); `record` is frames from the timeline start; `src_out` is exclusive (`endFrame`).
     Adds stereo audio tracks until `track` exists. `clear_track=True` deletes every clip already on the
     track first (destructive). Each cue is `AppendToTimeline` with `mediaType: 2`, then `SetName`,
     `SetClipColor`, `SetProperty("AudioVolume", dB)`, `SetFades({"FadeIn", "FadeOut"})`. Saves.

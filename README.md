@@ -53,6 +53,10 @@ Or run a script with `resolve`, `project` and `mr` pre-bound; its `result` varia
 | `ui` | menu-bar actions the API lacks, through macOS accessibility |
 | `qc` | editorial checks on a cut plan before building it |
 
+## Testbed
+
+`testbed/` builds a Resolve project from generated media and checks each function against it, frame by frame. See [testbed/README.md](testbed/README.md).
+
 ## License
 
 MIT

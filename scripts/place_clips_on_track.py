@@ -3,7 +3,7 @@
 Source frames are the clip's own (60p here); a 60p range lands int(n * 0.4) frames on a 24p timeline.
 """
 CUT = "Raycast AI Update - Cut v3"; BIN = "screen-recs"; CLIP = "ai-settings.mp4"
-TRACK = 4; TRACK_NAME = "SCREEN RECS"; ZOOM = 1.155; COLOR = "Cyan"
+TRACK = 4; TRACK_NAME = "SCREEN RECS"; ZOOM = 1.155; COLOR = "Navy"
 CLIPS = [  # (name, record start relative to the timeline, source in, source out)
     ("REC - AI Settings, Automations tab", 2051, 1638, 1926),
     ("REC - Automation examples list", 2312, 1980, 2168),

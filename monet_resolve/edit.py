@@ -2,7 +2,7 @@
 import time
 from typing import Dict, Optional, Sequence, Tuple
 
-from ._util import items, save, tc, timeline_fps
+from ._util import items, save, source_frames, tc, timeline_fps
 
 
 def punch_in_clips(resolve, project, timeline, punches: Sequence[Tuple[int, str]], track: int = 1,
@@ -49,7 +49,7 @@ def alternate_punch_ins(resolve, project, timeline, track: int = 1, zoom: float 
         en = it.GetEnd() - s
         on = it.GetClipEnabled()
         tid = it.GetName().split(" ")[0]
-        cont = prev is not None and prev["end"] == st and prev["tid"] == tid and abs(it.GetSourceStartFrame() - prev["src_end"]) <= 2
+        cont = prev is not None and prev["end"] == st and prev["tid"] == tid and abs(source_frames(it)[0] - prev["src_end"]) <= 2
         if cont:
             fr = prev["fr"]
         elif prev is not None and prev["end"] == st and prev["on"] == on:
@@ -61,7 +61,7 @@ def alternate_punch_ins(resolve, project, timeline, track: int = 1, zoom: float 
         it.SetProperty("ZoomY", z)
         it.SetProperty("Tilt", tl)
         plan.append((st, tid, on, fr, cont))
-        prev = {"end": en, "tid": tid, "on": on, "fr": fr, "src_end": it.GetSourceEndFrame()}
+        prev = {"end": en, "tid": tid, "on": on, "fr": fr, "src_end": source_frames(it)[1]}
     for k, v in timeline.GetMarkers().items():
         if v["color"] == marker_color:
             timeline.DeleteMarkerAtFrame(int(k))
@@ -77,12 +77,12 @@ def freeze_item(timeline, item, fps: Optional[int] = None, settle: float = 0.4) 
 
     `TimelineItem.SetSpeed({"Percentage": 0.0})` freezes on the frame under the playhead (clamped to the
     item), so the playhead is parked on the item's first frame first (`SetCurrentTimecode`, absolute) and
-    the call waits `settle` seconds. The item keeps its duration and `GetSourceStartFrame() ==
-    GetSourceEndFrame()` afterwards and the first and last frame render identical. To freeze a chosen frame f for D timeline frames, append the source range [f, f + n) where
+    the call waits `settle` seconds. The item keeps its duration and its first and last frame
+    render identical. To freeze a chosen frame f for D timeline frames, append the source range [f, f + n) where
     n gives D frames at the clip's rate (n = D * source_fps / timeline_fps), then call this.
     Returns {"ok": bool, "duration", "source_frame"}.
     """
     timeline.SetCurrentTimecode(tc(item.GetStart(), fps or timeline_fps(timeline)))
     time.sleep(settle)
     ok = item.SetSpeed({"Percentage": 0.0})
-    return {"ok": bool(ok), "duration": item.GetDuration(), "source_frame": item.GetSourceStartFrame()}
+    return {"ok": bool(ok), "duration": item.GetDuration(), "source_frame": source_frames(item)[0]}

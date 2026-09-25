@@ -13,33 +13,40 @@ another, and loading another project to look at it can crash Resolve. The route 
 5. `Timeline.CreateFusionClip([item])` makes a media pool item any timeline can `AppendToTimeline`.
    The result is a Fusion clip wrapping the Text title, so its words are edited by opening the clip.
 
-Needs `pip install zstandard` (the `richtext` extra).
+Needs zstd: `pip install zstandard` (the `richtext` extra) or the `zstd` command line tool.
 """
 import re
+import subprocess
 import zipfile
 from typing import Dict, List, Optional
 
 HEADER_MAGIC = bytes.fromhex("00000002")
 
 
-def _zstd():
+def _zstd(data: bytes, compress: bool) -> bytes:
+    """zstd through the `zstandard` module, or the `zstd` command line tool when the module is missing."""
     try:
         import zstandard
-    except ImportError as e:
-        raise ImportError("richtext needs `pip install zstandard`") from e
-    return zstandard
+    except ImportError:
+        try:
+            return subprocess.run(["zstd", "-c" if compress else "-dc"], input=data, capture_output=True, check=True).stdout
+        except FileNotFoundError as e:
+            raise ImportError("richtext needs `pip install zstandard` or the zstd command") from e
+    if compress:
+        return zstandard.ZstdCompressor().compress(data)
+    return zstandard.ZstdDecompressor().decompress(data, max_output_size=10 ** 7)
 
 
 def decode_filters(hexblob: str) -> bytes:
     """EffectFiltersBA hex -> decompressed title data."""
     b = bytes.fromhex(hexblob)
     i = b.find(bytes.fromhex("28b52ffd"))          # zstd magic
-    return _zstd().ZstdDecompressor().decompress(b[i:], max_output_size=10 ** 7)
+    return _zstd(b[i:], compress=False)
 
 
 def encode_filters(data: bytes) -> str:
     """Decompressed title data -> EffectFiltersBA hex, header rebuilt for the new length."""
-    c = _zstd().ZstdCompressor().compress(bytes(data))
+    c = _zstd(bytes(data), compress=True)
     return (HEADER_MAGIC + (len(c) + 1).to_bytes(4, "big") + b"\x81" + c).hex()
 
 

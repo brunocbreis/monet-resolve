@@ -16,7 +16,7 @@ import time
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from . import ui
-from ._util import VIDEO_PROPS, items, save, tc_seconds
+from ._util import VIDEO_PROPS, items, save, source_frames, tc_seconds
 from .clips import append_exact
 
 SPARE_COLORS = ["Chocolate", "Navy", "Orange", "Pink", "Lime", "Apricot", "Olive", "Tan", "Beige", "Brown"]
@@ -109,7 +109,7 @@ def swap_to_multicam(resolve, project, timeline, mcam, sources: Dict[str, str], 
             snap = {"start": x.GetStart() - s, "dur": x.GetDuration(), "props": {k: x.GetProperty(k) for k in VIDEO_PROPS},
                     "name": x.GetName(), "color": x.GetClipColor(), "enabled": x.GetClipEnabled(),
                     "angle": sources[m.GetClipProperty("File Name")],
-                    "mf": multicam_frame(mcam, m, x.GetSourceStartFrame())}
+                    "mf": multicam_frame(mcam, m, source_frames(x)[0])}
             timeline.DeleteClips([x], False)
             n = place_multicam(mp, timeline, mcam, tr, snap["start"], snap["dur"], snap["mf"], snap["props"])
             if n is None:

@@ -24,8 +24,8 @@ def backup_timeline(resolve, project, timeline, backup_name: str, timeline_bin: 
                     backups_bin: str = "backups") -> Dict:
     """Duplicate a timeline under `backup_name` and move the copy into `timeline_bin/backups_bin`.
 
-    `DuplicateTimeline` drops the copy next to the source (in the current bin), so the copy is found in
-    `timeline_bin` by name and moved with `MoveClips`; the backups bin is created when missing. Saves.
+    `DuplicateTimeline` drops the copy next to the source, so the copy's media pool item is moved with
+    `MoveClips`; the backups bin is created when missing. Saves.
     Returns {"backup": bool, "moved": MoveClips result or None, "backups": [names in the backups bin]}.
     This is the only undo the API offers: run it before any delete-and-re-append step.
     """
@@ -37,8 +37,7 @@ def backup_timeline(resolve, project, timeline, backup_name: str, timeline_bin: 
     project.SetCurrentTimeline(timeline)
     bk = timeline.DuplicateTimeline(backup_name)
     project.SetCurrentTimeline(timeline)
-    c = [x for x in tl.GetClipList() if x.GetName() == backup_name]
-    moved = mp.MoveClips(c, bk_bin) if c else None
+    moved = mp.MoveClips([bk.GetMediaPoolItem()], bk_bin) if bk else None
     save(resolve)
     return {"backup": bool(bk), "moved": moved, "backups": [x.GetName() for x in bk_bin.GetClipList()]}
 

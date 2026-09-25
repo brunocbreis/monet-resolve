@@ -67,10 +67,10 @@ def add_push_transition(resolve, project, timeline, item, position: str = "end",
     `item.AddTransition({"type": "Cross Dissolve", "category": "fusion", position, alignment, duration})`
     creates the Fusion transition (that name is the only Fusion transition the API resolves without a
     restart; a user template dropped in Fusion/Templates/Edit/Transitions is not found by `AddTransition`
-    until Resolve restarts); the Fusion page is opened, the comp rebuilt with `build_push`, the item renamed
-    "Push <direction>", and the comp optionally written to `save_comp_to` (`Composition.Save`) as the text
-    record of the transition (`TimelineItem.ExportFusionComp` returns False on transition items). Back on the
-    Edit page, saves. Returns {"transition": (name, start, duration), "build": ...}.
+    until Resolve restarts); the Fusion page is opened, the comp rebuilt with `build_push`, and the comp
+    optionally written to `save_comp_to` (`Composition.Save`) as the text record of the transition
+    (`TimelineItem.ExportFusionComp` returns False on transition items). The item keeps the name "Cross
+    Dissolve": `SetName` has no effect on transition items. Back on the Edit page, saves. Returns {"transition": (name, start, duration), "build": ...}.
     """
     s = timeline.GetStartFrame()
     project.SetCurrentTimeline(timeline)
@@ -89,7 +89,6 @@ def add_push_transition(resolve, project, timeline, item, position: str = "end",
     comp = tr.GetFusionCompByIndex(1)
     built = build_push(comp, direction, ease_in, ease_out)
     saved = comp.Save(save_comp_to) if save_comp_to else None
-    tr.SetName(f"Push {direction}")
     resolve.OpenPage("edit")
     save(resolve)
     return {"transition": (tr.GetName(), tr.GetStart() - s, tr.GetDuration()), "build": built, "saved": saved}

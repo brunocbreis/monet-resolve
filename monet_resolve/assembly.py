@@ -6,7 +6,7 @@ loses whatever lived on the item unless restored.
 """
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from ._util import VIDEO_PROPS, add_tracks_until, clean_name, items, save, track_locks
+from ._util import VIDEO_PROPS, add_tracks_until, append_exact, clean_name, items, save, source_frames, track_locks
 from .edit import freeze_item
 from .media import import_file_once
 from .timelines import refresh_timeline
@@ -19,11 +19,12 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
     """Build a new timeline from a cut list of source ranges on one footage clip.
 
     Each `cut` entry is {"id", "label", "src_in", "src_out", "section", "broll", "gap", "jump"}: one
-    `AppendToTimeline` of `footage_clip` from src_in to src_out (inclusive) at the running position on V1,
+    `AppendToTimeline` of `footage_clip` from src_in to src_out (exclusive) at the running position on V1,
     named "<id> · <label>" (cleaned of ':' and '/'), Green when on camera, Orange and disabled when
     `broll` names a b-roll slot, followed by `gap` empty frames. A Blue marker marks the first entry of each
-    `section`, a Red "JUMP CUT" marker each entry with `jump`. Markers are added after the build with the
-    measured positions (a 25p clip in a 24p timeline lands as int(n * 0.96) frames).
+    `section`, a Red "JUMP CUT" marker each entry with `jump`; when both fall on one frame, the section marker
+    stays and its note says "JUMP CUT". Markers are added after the build with the measured positions (a 25p
+    clip in a 24p timeline lands as int(n * 0.96) frames).
     The timeline is created in `timeline_bin` (a Folder); `video_tracks` are names for V1.., `audio_tracks`
     are (subtype, name) with the first describing the default A1 (always stereo from `CreateEmptyTimeline`;
     mono A1 needs `backup_timeline` of a timeline with the layout, or a UI track-type change). A2 is disabled.
@@ -49,6 +50,7 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
     spans: List[Dict] = []
     placed = []
     sections: Dict[str, int] = {}
+    jumps: Dict[int, str] = {}
     for e in cut:
         new = mp.AppendToTimeline([{"mediaPoolItem": footage_clip, "startFrame": e["src_in"], "endFrame": e["src_out"], "trackIndex": 1, "recordFrame": s + pos}])
         if not new:
@@ -70,11 +72,13 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
                 spans.append({"text": "(space for b-roll)", "start": pos + d, "end": pos + d + e["gap"]})
         sections.setdefault(e["section"], pos)
         if e.get("jump"):
-            t.AddMarker(pos, "Red", "JUMP CUT", f'{e["id"]} - trimmed pause', 1)
+            jumps[pos] = f'{e["id"]} - trimmed pause'
         placed.append((e["id"], pos, d))
         pos += d + e["gap"]
     for name, f in sections.items():
-        t.AddMarker(f, "Blue", name, "", 1)
+        t.AddMarker(f, "Blue", name, f"JUMP CUT: {jumps.pop(f)}" if f in jumps else "", 1)
+    for f, note in jumps.items():
+        t.AddMarker(f, "Red", "JUMP CUT", note, 1)
     if len(audio_tracks) > 1:
         t.SetTrackEnable("audio", 2, False)
     save(resolve)
@@ -82,45 +86,65 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
             "audio_subtypes": [t.GetTrackSubType("audio", i + 1) for i in range(t.GetTrackCount("audio"))]}
 
 
-def close_gap_ripple(resolve, project, timeline, gap_start: int, gap_len: int, dummy_clip, video_track: int = 1,
-                     lock_video: Sequence[int] = (), source_fps_ratio: float = 25 / 24) -> Dict:
-    """Close a gap (or remove an empty range): fill it with a dummy clip and ripple-delete the dummy.
+def close_gap_ripple(resolve, project, timeline, gap_start: int, gap_len: int, dummy_clip,
+                     tracks: Optional[Sequence[Tuple[str, int]]] = None) -> Dict:
+    """Close an empty stretch on the chosen tracks: everything after it on those tracks moves left by `gap_len`.
 
-    The API has no gap selection, so `dummy_clip` (any MediaPoolItem) is appended on `video_track` from
-    source frame 0 for `int(gap_len * source_fps_ratio + 0.5)` frames at `gap_start`, then the dummy and
-    its linked audio are removed with `DeleteClips(items, True)`: everything after the gap on unlocked
-    tracks moves left by the gap length. Pass the video track indexes that must stay put in `lock_video`.
-    Refuses when the range is occupied on `video_track` and returns {"error", "clips"} instead. Saves.
-    Returns {"dummy_len", "expected_shift", "first_clip_before_after"} for checking the shift.
-    The dummy and its audio are matched by media pool clip as well as start frame, so another item that
-    starts on the gap frame (a music cue) stays out of the ripple delete. A 245-frame gap needs a
-    256-frame 25p dummy (255 lands 244).
+    `tracks` lists the tracks that close, as ("video" | "audio", index) pairs, in any combination
+    (`[("video", 1), ("audio", 1)]` closes the dialogue and leaves V2, V3 and the music in place); None means
+    every track. Every other track is locked for the ripple and gets its lock state back afterward.
+
+    The API has no gap selection, so `dummy_clip` (any MediaPoolItem) is appended into the gap on the first
+    chosen track with an exact length (`append_exact`) and ripple-deleted with `DeleteClips([dummy], True)`.
+    Refuses, changing nothing, when a chosen track has any item inside the gap (a music cue running across it
+    included: leave that track out to keep it playing) and returns {"error", "occupied": [(kind, index, name)]}.
+    The locks are read back before the delete, and the tracks left out are compared before and after it; either
+    failing returns an "error". Saves. Returns {"closed": tracks, "moved": items that moved, "stayed": items after
+    the gap that stayed}.
     """
-    mp = project.GetMediaPool()
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
-    before = [(x.GetName(), x.GetStart() - s) for x in items(timeline, "video", video_track) if x.GetStart() - s > gap_start]
-    occupied = [x.GetName() for x in items(timeline, "video", video_track) if x.GetStart() - s < gap_start + gap_len and x.GetEnd() - s > gap_start]
+    every = [(k, i) for k in ("video", "audio") for i in range(1, timeline.GetTrackCount(k) + 1)]
+    chosen = list(every if tracks is None else tracks)
+    unknown = [t for t in chosen if t not in every]
+    if not chosen or unknown:
+        return {"error": "no such track" if unknown else "no tracks chosen", "tracks": unknown}
+    occupied = [(k, i, x.GetName()) for k, i in chosen for x in items(timeline, k, i)
+                if x.GetStart() - s < gap_start + gap_len and x.GetEnd() - s > gap_start]
     if occupied:
-        return {"error": "range is not empty on the video track", "clips": occupied}
-    for ti in lock_video:
-        timeline.SetTrackLock("video", ti, True)
-    n = int(gap_len * source_fps_ratio)
-    while int(n / source_fps_ratio) < gap_len:  # n source frames land int(n / ratio) timeline frames; pick the n that gives gap_len exactly
-        n += 1
-    mp.AppendToTimeline([{"mediaPoolItem": dummy_clip, "startFrame": 0, "endFrame": n, "trackIndex": video_track, "recordFrame": s + gap_start}])
-    def _is_dummy(x):
-        c = x.GetMediaPoolItem()
-        return x.GetStart() - s == gap_start and c is not None and c.GetName() == dummy_clip.GetName()
-    dummy = [x for x in items(timeline, "video", video_track) if _is_dummy(x)]
-    dummy += [x for ai in range(1, timeline.GetTrackCount("audio") + 1) for x in items(timeline, "audio", ai) if _is_dummy(x)]
-    dlen = dummy[0].GetDuration() if dummy else 0
-    timeline.DeleteClips(dummy, True)
-    for ti in lock_video:
-        timeline.SetTrackLock("video", ti, False)
-    after = [(x.GetName(), x.GetStart() - s) for x in items(timeline, "video", video_track) if x.GetStart() - s > gap_start - 1]
+        return {"error": "the gap is not empty on a chosen track", "occupied": occupied}
+
+    def positions(tracks):
+        return {(k, i, x.GetName(), x.GetStart() - s, x.GetDuration()) for k, i in tracks for x in items(timeline, k, i)}
+
+    others = [t for t in every if t not in chosen]
+    kept = positions(others)
+    before = sorted(p for p in positions(chosen) if p[3] >= gap_start + gap_len)
+    locks = {t: timeline.GetIsTrackLocked(*t) for t in every}
+    try:
+        for t in every:
+            timeline.SetTrackLock(*t, t not in chosen)
+        if any(timeline.GetIsTrackLocked(*t) != (t not in chosen) for t in every):
+            return {"error": "track locks did not take; nothing was changed"}
+        kind, index = chosen[0]
+        dummy = append_exact(project.GetMediaPool(), timeline, dummy_clip, index, gap_start, gap_len, 0,
+                             media_type=1 if kind == "video" else 2, exact=False)
+        if not dummy:
+            return {"error": "could not place a dummy clip of the gap's length"}
+        timeline.DeleteClips([dummy], True)
+    finally:
+        for t, locked in locks.items():
+            timeline.SetTrackLock(*t, locked)
+    now = positions(chosen)
+    out = {"closed": chosen,
+           "moved": [p[:4] for p in before if (p[0], p[1], p[2], p[3] - gap_len, p[4]) in now],
+           "stayed": [p[:4] for p in before if p in now]}
+    changed = sorted(kept ^ positions(others))
+    if changed:
+        out["error"] = "tracks that were not chosen changed; restore from a backup"
+        out["changed"] = changed
     save(resolve)
-    return {"dummy_len": dlen, "expected_shift": gap_len, "first_clip_before_after": (before[:1], after[:1])}
+    return out
 
 
 def find_destination_track(timeline, fps: Optional[int] = None) -> int:
@@ -162,7 +186,7 @@ def insert_fusion_comp_at(resolve, project, timeline, track: int, start: int, du
     if target != track:
         return {"error": f"destination toggle is on V{target}, not V{track}: set it in the UI and rerun"}
     right = [x for x in items(timeline, "video", track) if x.GetStart() - s >= start]
-    retimed = [x.GetName() for x in right if x.GetProperty("Speed") not in (None, 100, 100.0)]
+    retimed = [x.GetName() for x in right if (x.GetSpeed() or {}).get("Percentage", 100.0) != 100.0]
     if retimed:
         return {"error": "retimed clips to the right cannot be restored by script", "clips": retimed}
     snap = []
@@ -172,7 +196,7 @@ def insert_fusion_comp_at(resolve, project, timeline, track: int, start: int, du
             path = f"{snapshot_dir}/restore_{x.GetUniqueId()}.comp"
             comp = path if x.ExportFusionComp(path, 1) else None
         snap.append({"mpi": x.GetMediaPoolItem(), "start": x.GetStart(), "dur": x.GetDuration(),
-                     "src": (x.GetSourceStartFrame(), x.GetSourceEndFrame()), "name": x.GetName(), "color": x.GetClipColor(),
+                     "src": source_frames(x), "name": x.GetName(), "color": x.GetClipColor(),
                      "props": {k: x.GetProperty(k) for k in VIDEO_PROPS}, "comp": comp})
     restored = []
     with track_locks(timeline, track):
@@ -213,8 +237,7 @@ def nest_timeline_over_placeholder(resolve, project, cut, nested_item, track: in
     `Timeline.GetMediaPoolItem()`). The placeholder is the item on `placeholder_track` that starts at
     `placeholder_start` (frames from the cut start). Video tracks are added until `track` exists and it is
     renamed when `track_name` is given. `clear_track=True` deletes every item already on `track` first
-    (destructive). Appends with `endFrame = placeholder duration` (nested timelines take n where media clips
-    take n - 1). Saves. Returns {"placeholder": (name, duration), "nested": [(name, start, duration)]}.
+    (destructive). Appends from frame 0 with `endFrame = placeholder duration` (`endFrame` is exclusive). Saves. Returns {"placeholder": (name, duration), "nested": [(name, start, duration)]}.
     """
     mp = project.GetMediaPool()
     s = cut.GetStartFrame()
@@ -263,8 +286,7 @@ def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zo
     `clips` is [(name, record_start, source_in, source_out)] with `record_start` relative to the timeline
     start and the source range in the clip's own frames. A 60p clip on a 24p timeline lands
     `int((source_out - source_in) * 0.4)` frames long, so size the source range as `timeline_frames * 2.5`
-    (the 25p rule is `int(n * 0.96)`); the item's `GetSourceEndFrame` then reads a frame or two short of
-    `source_out`. Video tracks are added until `track` exists and it is renamed when `track_name` is
+    (the 25p rule is `int(n * 0.96)`); the item's source end then sits a frame or two short of `source_out`. Video tracks are added until `track` exists and it is renamed when `track_name` is
     given; each item is named with `SetName` (':' and '/' fail silently, `clean_name` swaps them), coloured,
     and given `ZoomX`/`ZoomY` when `zoom` is set (1.155 fills the 4K width with a 3548x2304 screen
     recording that "scaleToFit" would otherwise pillarbox). `mediaType: 1` keeps the clip's audio off the
@@ -289,12 +311,12 @@ def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zo
         if zoom:
             it.SetProperty("ZoomX", zoom)
             it.SetProperty("ZoomY", zoom)
-        out.append((it.GetName(), it.GetStart() - s, it.GetDuration(), it.GetSourceStartFrame(), it.GetSourceEndFrame()))
+        out.append((it.GetName(), it.GetStart() - s, it.GetDuration(), *source_frames(it)))
     save(resolve)
     return out
 
 
-def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], color: Optional[str] = "Cyan",
+def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], color: Optional[str] = "Navy",
                 fps: Optional[int] = None) -> List[Dict]:
     """Append a shot list of source ranges onto `track`: wide shots, close-ups (zoom, pan, tilt) and freeze frames.
 
@@ -325,7 +347,7 @@ def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], c
             it.SetProperties(sh["props"])
         fz = freeze_item(timeline, it, fps=fps)["ok"] if sh.get("freeze") else None
         out.append({"name": it.GetName(), "start": it.GetStart() - s, "duration": it.GetDuration(),
-                    "source": (it.GetSourceStartFrame(), it.GetSourceEndFrame()), "frozen": fz})
+                    "source": source_frames(it), "frozen": fz})
     save(resolve)
     return out
 

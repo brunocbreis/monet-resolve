@@ -4,49 +4,13 @@ stills longer than 24 frames.
 The API has no trim, extend or join. Every one of these is "append the same source range at the right
 record frame, then delete what it replaces", with the source frame checked after the append: appending
 a 25p or 30p source into a 24 fps timeline can land one source frame early. `append_exact` retries
-neighboring start frames until the item's `GetSourceStartFrame()` equals the one asked for.
+neighboring start frames until the item's source start (`source_frames`) equals the one asked for.
 """
 import json
 from typing import Dict, List, Optional, Sequence
 
-from ._util import VIDEO_PROPS, items, save
+from ._util import VIDEO_PROPS, append_exact, items, save, source_frames  # noqa: F401 (append_exact lives in _util)
 from .assembly import insert_gap_ripple
-
-
-def append_exact(media_pool, timeline, clip, track: int, record: int, frames: int, source_start: int,
-                 media_type: int = 1, exact: bool = True, tries: Sequence[int] = (0, 1, -1, 2)):
-    """Append `frames` of `clip` from `source_start` at `record` (relative) on `track`, exact in duration
-    and, with `exact`, in source start. For audio (`media_type=2`) source frames are in the clip's own
-    frame rate. Returns the item (the closest one when no try lands exactly; check its source start),
-    or None when no append reached the duration."""
-    s = timeline.GetStartFrame()
-    tl_fps = float(timeline.GetSetting("timelineFrameRate") or 24)
-    ratio = float(clip.GetClipProperty("FPS") or tl_fps) / tl_fps if media_type == 2 else 1.0
-    last = None
-    for off in (tries if exact else (0,)):
-        sf = source_start + off
-        end = sf + round(frames * ratio) - 1
-        n = None
-        for _ in range(6):
-            r = media_pool.AppendToTimeline([{"mediaPoolItem": clip, "startFrame": sf, "endFrame": end, "trackIndex": track,
-                                              "recordFrame": s + record, "mediaType": media_type}])
-            n = r[0] if r else None
-            if not n:
-                break
-            if n.GetDuration() == frames:
-                break
-            d = n.GetDuration()
-            timeline.DeleteClips([n], False)
-            end += round((frames - d) * ratio) or (1 if frames > d else -1)
-            n = None
-        if n is None:
-            continue
-        if not exact or n.GetSourceStartFrame() == source_start:
-            return n
-        if last is not None:
-            timeline.DeleteClips([last], False)
-        last = n
-    return last
 
 
 def _copy_attrs(src_snapshot: Dict, n) -> None:
@@ -65,7 +29,8 @@ def _copy_attrs(src_snapshot: Dict, n) -> None:
 
 def snapshot(item, kind: str) -> Dict:
     """Everything `continue_clip`/`merge_through_edits` restore on a re-appended item."""
-    snap = {"clip": item.GetMediaPoolItem(), "source_start": item.GetSourceStartFrame(), "source_end": item.GetSourceEndFrame(),
+    first, end = source_frames(item)
+    snap = {"clip": item.GetMediaPoolItem(), "source_start": first, "source_end": end,
             "enabled": item.GetClipEnabled(), "color": item.GetClipColor(), "name": item.GetName()}
     if kind == "video":
         snap["props"] = {k: item.GetProperty(k) for k in VIDEO_PROPS}
@@ -115,7 +80,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
         for x in its:
             key = (x.GetMediaPoolItem().GetUniqueId(), x.GetName(), x.GetClipEnabled(),
                    tuple(round(x.GetProperty(k) or 0, 3) for k in VIDEO_PROPS) if kind == "video" else x.GetProperty("AudioVolume"))
-            if groups and groups[-1][0] == key and groups[-1][-1].GetEnd() == x.GetStart() and x.GetSourceStartFrame() == groups[-1][-1].GetSourceEndFrame():
+            if groups and groups[-1][0] == key and groups[-1][-1].GetEnd() == x.GetStart() and source_frames(x)[0] == source_frames(groups[-1][-1])[1]:
                 groups[-1].append(x)
             else:
                 groups.append([key, x])
@@ -138,8 +103,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
 
 
 def shift_markers(timeline, from_frame: int, delta: int) -> int:
-    """Move every timeline marker at or after `from_frame` (relative) by `delta` frames (ripple edits leave
-    markers in place). Returns the count moved."""
+    """Move every timeline marker at or after `from_frame` (relative) by `delta` frames. Returns the count moved."""
     mk = timeline.GetMarkers() or {}
     moved = 0
     for f in sorted(mk, reverse=delta > 0):
@@ -154,9 +118,8 @@ def shift_markers(timeline, from_frame: int, delta: int) -> int:
 def ripple_insert(resolve, project, timeline, at: int, frames: int) -> Dict:
     """Open `frames` of space at `at` on every track, moving clips and markers after it. Clips that span
     `at` are split with an empty stretch between the halves; fill it with `continue_clip`.
-    `assembly.insert_gap_ripple` moves the clips, `shift_markers` the markers. Saves."""
+    The insert inside `assembly.insert_gap_ripple` moves the markers along with the clips. Saves."""
     r = insert_gap_ripple(resolve, project, timeline, at, frames)
-    shift_markers(timeline, at, frames)
     save(resolve)
     return r
 
