@@ -6,36 +6,34 @@ from ._util import clean_name, items, save, tc, timeline_fps, track_locks
 from .timelines import refresh_timeline
 
 
+def _insert_marked(timeline, start: int, duration: int, fps: Optional[int], insert):
+    s = timeline.GetStartFrame()
+    fps = fps or timeline_fps(timeline)
+    timeline.SetMarkInOut(start, start + duration - 1)
+    timeline.SetCurrentTimecode(tc(s + start, fps))
+    it = insert()
+    timeline.ClearMarkInOut()
+    return it
+
+
 def insert_fusion_title(timeline, start: int, duration: int, fps: Optional[int] = None, template: str = "Text+"):
     """Insert a Fusion title of exact length at `start` (frames from the timeline start) on the unlocked track.
 
     The workaround for the missing duration setter: `SetMarkInOut(start, start + duration - 1)` (relative
     frames), `SetCurrentTimecode` at the absolute start, `InsertFusionTitleIntoTimeline(template)`,
-    `ClearMarkInOut`. Lock the other tracks first (`_util.track_locks`) so it lands where you want; the
-    Edit page must be open. Returns the TimelineItem, or False/None when the insert failed. Worked 2026-09-11.
+    `ClearMarkInOut`. Lock the other tracks first (`track_locks`) so it lands where you want; the
+    Edit page must be open. Returns the TimelineItem, or False/None when the insert failed.
     """
-    s = timeline.GetStartFrame()
-    fps = fps or timeline_fps(timeline)
-    timeline.SetMarkInOut(start, start + duration - 1)
-    timeline.SetCurrentTimecode(tc(s + start, fps))
-    it = timeline.InsertFusionTitleIntoTimeline(template)
-    timeline.ClearMarkInOut()
-    return it
+    return _insert_marked(timeline, start, duration, fps, lambda: timeline.InsertFusionTitleIntoTimeline(template))
 
 
 def insert_fusion_composition(timeline, start: int, duration: int, fps: Optional[int] = None):
     """Insert an empty native Fusion composition of exact length at `start` on the unlocked track.
 
     Same marks recipe as `insert_fusion_title` with `InsertFusionCompositionIntoTimeline()`. Returns the
-    TimelineItem, or False/None when the insert failed. Worked 2026-09-11.
+    TimelineItem, or False/None when the insert failed.
     """
-    s = timeline.GetStartFrame()
-    fps = fps or timeline_fps(timeline)
-    timeline.SetMarkInOut(start, start + duration - 1)
-    timeline.SetCurrentTimecode(tc(s + start, fps))
-    it = timeline.InsertFusionCompositionIntoTimeline()
-    timeline.ClearMarkInOut()
-    return it
+    return _insert_marked(timeline, start, duration, fps, timeline.InsertFusionCompositionIntoTimeline)
 
 
 def style_text_plus(comp, text: str, font: str = "Inter 28pt", style: str = "Medium", size: float = 0.045,
@@ -44,7 +42,7 @@ def style_text_plus(comp, text: str, font: str = "Inter 28pt", style: str = "Med
 
     There is no Inspector call; this finds the tool with `ID == "TextPlus"` and calls `SetInput` for
     StyledText, Font, Style, Size, Red1, Green1, Blue1. Colors are 0 to 1. A `style` that matches no face
-    falls back silently. Returns False when the comp has no TextPlus tool. Worked 2026-09-11.
+    falls back silently. Returns False when the comp has no TextPlus tool.
     """
     tools = [x for x in comp.GetToolList().values() if x.ID == "TextPlus"]
     if not tools:
@@ -72,7 +70,7 @@ def text_placeholders(resolve, project, timeline, track: int, spans: Sequence[Tu
     Resolve reloads it. Locks every other video track and all audio so the insert lands on `track`.
     The Text+ reads `heading + wrapped text` (Text+ does not wrap scripted text; `textwrap` does it at
     `wrap` columns). Items are named `name_prefix + text` (cleaned of ':' and '/') and colored. Saves.
-    Returns {"placed": [(start, duration)] or (start, "FAILED"), "texts_set": count}. Worked 2026-09-11.
+    Returns {"placed": [(start, duration)] or (start, "FAILED"), "texts_set": count}.
     """
     resolve.OpenPage("edit")
     if other is not None:
@@ -113,7 +111,6 @@ def title_fitted_to_clip(resolve, project, timeline, clip_track: int, clip_name:
     Same locking and marks choreography as `text_placeholders`; `other` triggers the switch-away refresh.
     The item is named `name_prefix + text`, colored, and its TextPlus tool styled. Saves.
     Returns {"title": (name, start, duration), "clip": (name, start, duration), "fits": bool}.
-    Status: assembled on 2026-09-11 from recipes that each ran as spans; not yet run as a whole.
     """
     resolve.OpenPage("edit")
     if other is not None:
@@ -144,8 +141,7 @@ def retrim_title(resolve, project, timeline, track: int, start: int, duration: i
     target, the timeline is refreshed (`other`), then the target and the snapshotted titles are re-inserted
     in ascending order with `insert_fusion_title` (nothing sits to their right, so nothing ripples) and
     restyled with `style_text_plus`. Saves. Returns {"title": (name, start, end), "restored": n,
-    "misplaced": [(name, wanted, got)]}. Worked 2026-09-14 (a first version without the snapshot pushed
-    eight placeholders 247 frames down the track).
+    "misplaced": [(name, wanted, got)]}.
     """
     resolve.OpenPage("edit")
     s = timeline.GetStartFrame()
@@ -199,7 +195,6 @@ def fusion_vignette_layer(resolve, project, timeline, track_name: str = "GFX", c
     need the Edit page and the track layout reads stale until a page switch), locks the other tracks,
     inserts from frame 0 to the end of the last V1 item, builds the comp on the Fusion page. Saves.
     Returns {"track", "item": (name, start, duration), "opacity"} or {"error": "insert failed"}.
-    Worked 2026-09-11.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()

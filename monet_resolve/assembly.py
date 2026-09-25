@@ -6,11 +6,11 @@ loses whatever lived on the item unless restored.
 """
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from ._util import clean_name, items, save, tc, timeline_fps, track_locks
+from ._util import VIDEO_PROPS, add_tracks_until, clean_name, items, save, track_locks
+from .edit import freeze_item
 from .media import import_file_once
-
-SNAPSHOT_KEYS = ["ZoomX", "ZoomY", "Pan", "Tilt", "AnchorPointX", "AnchorPointY", "RotationAngle", "Opacity",
-                 "CropLeft", "CropRight", "CropTop", "CropBottom", "CompositeMode"]
+from .timelines import refresh_timeline
+from .titles import insert_fusion_composition, insert_fusion_title
 
 
 def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict], footage_clip, timeline_bin,
@@ -28,7 +28,7 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
     are (subtype, name) with the first describing the default A1 (always stereo from `CreateEmptyTimeline`;
     mono A1 needs `backup_timeline` of a timeline with the layout, or a UI track-type change). A2 is disabled.
     Saves. Returns {"placed": [(id, start, duration|"FAILED")], "spans": b-roll spans for
-    `titles.text_placeholders`, "sections": {name: start}, "length", "audio_subtypes"}. Worked 2026-09-11.
+    `titles.text_placeholders`, "sections": {name: start}, "length", "audio_subtypes"}.
     """
     mp = project.GetMediaPool()
     root = mp.GetRootFolder()
@@ -38,8 +38,7 @@ def build_cut_from_list(resolve, project, timeline_name: str, cut: Sequence[Dict
     mp.SetCurrentFolder(root)
     project.SetCurrentTimeline(t)
     s = t.GetStartFrame()
-    while t.GetTrackCount("video") < len(video_tracks):
-        t.AddTrack("video")
+    add_tracks_until(t, "video", len(video_tracks))
     for i, n in enumerate(video_tracks):
         t.SetTrackName("video", i + 1, n)
     for kind, _ in list(audio_tracks)[1:]:
@@ -93,9 +92,9 @@ def close_gap_ripple(resolve, project, timeline, gap_start: int, gap_len: int, d
     tracks moves left by the gap length. Pass the video track indexes that must stay put in `lock_video`.
     Refuses when the range is occupied on `video_track` and returns {"error", "clips"} instead. Saves.
     Returns {"dummy_len", "expected_shift", "first_clip_before_after"} for checking the shift.
-    The dummy and its audio are matched by media pool clip, never by start frame alone: a music cue starting on
-    the gap frame once got swept into the ripple delete and took 1400 frames of the cut with it (2026-09-14).
-    A 245-frame gap needs a 256-frame 25p dummy (255 lands 244). Worked 2026-09-14 on Cut v3.
+    The dummy and its audio are matched by media pool clip as well as start frame, so another item that
+    starts on the gap frame (a music cue) stays out of the ripple delete. A 245-frame gap needs a
+    256-frame 25p dummy (255 lands 244).
     """
     mp = project.GetMediaPool()
     project.SetCurrentTimeline(timeline)
@@ -129,18 +128,14 @@ def find_destination_track(timeline, fps: Optional[int] = None) -> int:
 
     Inserts a 10-frame composition 10 frames after the last item on any video track, finds the track it
     landed on by `GetUniqueId`, deletes it without ripple, clears the marks. The Edit page must be open.
-    Returns the video track index. Worked 2026-09-11.
+    Returns the video track index.
     """
     s = timeline.GetStartFrame()
-    fps = fps or timeline_fps(timeline)
     nt = timeline.GetTrackCount("video")
     end = max(x.GetEnd() for ti in range(1, nt + 1) for x in items(timeline, "video", ti)) - s
-    timeline.SetMarkInOut(end + 10, end + 19)
-    timeline.SetCurrentTimecode(tc(s + end + 10, fps))
-    p = timeline.InsertFusionCompositionIntoTimeline()
+    p = insert_fusion_composition(timeline, end + 10, 10, fps)
     target = [ti for ti in range(1, nt + 1) if any(x.GetUniqueId() == p.GetUniqueId() for x in items(timeline, "video", ti))][0]
     timeline.DeleteClips([p], False)
-    timeline.ClearMarkInOut()
     return target
 
 
@@ -151,20 +146,19 @@ def insert_fusion_comp_at(resolve, project, timeline, track: int, start: int, du
     Steps: probe the destination toggle (`find_destination_track`) and stop with an error when it is on
     another track; refuse when a retimed clip (Speed not 100) sits at or right of `start` on the track,
     since `AppendToTimeline` cannot recreate it; snapshot every plain clip from `start` on (pool item,
-    source range, record frame, name, color, SNAPSHOT_KEYS properties, comp exported to `snapshot_dir`);
+    source range, record frame, name, color, VIDEO_PROPS properties, comp exported to `snapshot_dir`);
     lock every other video track and all audio; `DeleteClips` those items (no ripple); insert with the
     marks recipe; re-append each snapshot at its original record frame, restore properties, color, name
     and comp; verify durations; name and color the new item; optionally `ImportFusionComp(comp_path)`.
     Items without a media pool item (other Fusion compositions) cannot be re-appended and are skipped.
     Saves. Returns {"inserted": (name, start, duration), "restored": [(name, duration_ok|reason)]} or
-    {"error", ...}. Status: the pattern ran piecemeal on 2026-09-11 and 2026-09-12; not yet run as a whole.
+    {"error", ...}.
     """
     mp = project.GetMediaPool()
     project.SetCurrentTimeline(timeline)
     resolve.OpenPage("edit")
     s = timeline.GetStartFrame()
-    fps = timeline_fps(timeline)
-    target = find_destination_track(timeline, fps)
+    target = find_destination_track(timeline)
     if target != track:
         return {"error": f"destination toggle is on V{target}, not V{track}: set it in the UI and rerun"}
     right = [x for x in items(timeline, "video", track) if x.GetStart() - s >= start]
@@ -179,15 +173,12 @@ def insert_fusion_comp_at(resolve, project, timeline, track: int, start: int, du
             comp = path if x.ExportFusionComp(path, 1) else None
         snap.append({"mpi": x.GetMediaPoolItem(), "start": x.GetStart(), "dur": x.GetDuration(),
                      "src": (x.GetSourceStartFrame(), x.GetSourceEndFrame()), "name": x.GetName(), "color": x.GetClipColor(),
-                     "props": {k: x.GetProperty(k) for k in SNAPSHOT_KEYS}, "comp": comp})
+                     "props": {k: x.GetProperty(k) for k in VIDEO_PROPS}, "comp": comp})
     restored = []
     with track_locks(timeline, track):
         if right:
             timeline.DeleteClips(right, False)
-        timeline.SetMarkInOut(start, start + duration - 1)
-        timeline.SetCurrentTimecode(tc(s + start, fps))
-        it = timeline.InsertFusionCompositionIntoTimeline()
-        timeline.ClearMarkInOut()
+        it = insert_fusion_composition(timeline, start, duration)
         for c in snap:
             if c["mpi"] is None:
                 restored.append((c["name"], "SKIPPED: no media pool item (Fusion composition)"))
@@ -224,19 +215,18 @@ def nest_timeline_over_placeholder(resolve, project, cut, nested_item, track: in
     renamed when `track_name` is given. `clear_track=True` deletes every item already on `track` first
     (destructive). Appends with `endFrame = placeholder duration` (nested timelines take n where media clips
     take n - 1). Saves. Returns {"placeholder": (name, duration), "nested": [(name, start, duration)]}.
-    Worked 2026-09-11.
     """
     mp = project.GetMediaPool()
     s = cut.GetStartFrame()
     project.SetCurrentTimeline(cut)
-    while cut.GetTrackCount("video") < track:
-        cut.AddTrack("video")
+    add_tracks_until(cut, "video", track)
     if track_name:
         cut.SetTrackName("video", track, track_name)
     slot = [x for x in items(cut, "video", placeholder_track) if x.GetStart() - s == placeholder_start][0]
     if clear_track:
-        for x in items(cut, "video", track):
-            cut.DeleteClips([x], False)
+        old = items(cut, "video", track)
+        if old:
+            cut.DeleteClips(old, False)
     mp.AppendToTimeline([{"mediaPoolItem": nested_item, "startFrame": 0, "endFrame": slot.GetDuration(), "trackIndex": track, "recordFrame": s + placeholder_start, "mediaType": 1}])
     save(resolve)
     return {"placeholder": (slot.GetName(), slot.GetDuration()), "nested": [(x.GetName(), x.GetStart() - s, x.GetDuration()) for x in items(cut, "video", track)]}
@@ -249,13 +239,14 @@ def swap_gfx_clip(resolve, project, path: str, folder, gfx_timeline, frames: int
     V1 of `gfx_timeline` (no ripple), appends the clip from frame 0 to `frames` at the timeline start.
     `delete_old_versions=True` then deletes every other clip in `folder` from the media pool (destructive).
     For a same-length re-render, `media.replace_clip_file` is the lighter route. Saves.
-    Returns {"on_timeline": [(name, duration)], "bin": [clip names]}. Worked 2026-09-11.
+    Returns {"on_timeline": [(name, duration)], "bin": [clip names]}.
     """
     mp = project.GetMediaPool()
     clip = import_file_once(mp, folder, path)
     project.SetCurrentTimeline(gfx_timeline)
-    for it in items(gfx_timeline, "video", 1):
-        gfx_timeline.DeleteClips([it], False)
+    old = items(gfx_timeline, "video", 1)
+    if old:
+        gfx_timeline.DeleteClips(old, False)
     mp.AppendToTimeline([{"mediaPoolItem": clip, "startFrame": 0, "endFrame": frames, "trackIndex": 1, "recordFrame": gfx_timeline.GetStartFrame(), "mediaType": 1}])
     if delete_old_versions:
         old = [c for c in folder.GetClipList() if c.GetName() != clip.GetName()]
@@ -277,14 +268,12 @@ def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zo
     given; each item is named with `SetName` (':' and '/' fail silently, `clean_name` swaps them), coloured,
     and given `ZoomX`/`ZoomY` when `zoom` is set (1.155 fills the 4K width with a 3548x2304 screen
     recording that "scaleToFit" would otherwise pillarbox). `mediaType: 1` keeps the clip's audio off the
-    timeline. Saves. Returns [(name, start, duration, source_start, source_end)]. Worked 2026-09-14 on
-    the Raycast AI Update edit (six screen-recording slots over their V2 placeholders).
+    timeline. Saves. Returns [(name, start, duration, source_start, source_end)].
     """
     mp = project.GetMediaPool()
     s = timeline.GetStartFrame()
     project.SetCurrentTimeline(timeline)
-    while timeline.GetTrackCount("video") < track:
-        timeline.AddTrack("video")
+    add_tracks_until(timeline, "video", track)
     if track_name:
         timeline.SetTrackName("video", track, track_name)
     out = []
@@ -306,7 +295,7 @@ def place_clips_on_track(resolve, project, timeline, clip, track: int, clips, zo
 
 
 def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], color: Optional[str] = "Cyan",
-                fps: int = 24) -> List[Dict]:
+                fps: Optional[int] = None) -> List[Dict]:
     """Append a shot list of source ranges onto `track`: wide shots, close-ups (zoom, pan, tilt) and freeze frames.
 
     Each shot is a dict: `name`, `record` (frame relative to the timeline start), `clip` (MediaPoolItem),
@@ -316,11 +305,8 @@ def place_shots(resolve, project, timeline, track: int, shots: Sequence[Dict], c
     Close-up framing: with the image fitted to the frame at scale f (f = 2160 / source height for a wider-
     than-16:9 source) and zoom z, a source point (cx, cy) is centred with `Pan = -(cx - w/2) * f * z` and
     `Tilt = (cy - h/2) * f * z` (Tilt positive moves the image up). Video only (`mediaType: 1`), names via
-    `clean_name`, colour `color`. Saves. Returns [{"name", "start", "duration", "source", "frozen"}].
-    Worked 2026-09-14: ten shots over five placeholders on the Raycast AI Update edit (wide, hard cut to a
-    2.6x close-up, native freeze to fill the slot).
+    `clean_name`, color `color`. Saves. Returns [{"name", "start", "duration", "source", "frozen"}].
     """
-    from .edit import freeze_item
     mp = project.GetMediaPool()
     s = timeline.GetStartFrame()
     project.SetCurrentTimeline(timeline)
@@ -348,16 +334,13 @@ def insert_gap_ripple(resolve, project, timeline, at: int, frames: int, other=No
     """Open `frames` of empty space at `at` (relative) on every track, moving everything after it later.
 
     The inverse of `close_gap_ripple`. The API has no insert-gap call, but `InsertFusionTitleIntoTimeline`
-    is a true insert edit: with every video and audio track UNLOCKED it ripples all of them (with the other
-    tracks locked it ripples only its own, which is how it was always used before). So: unlock everything,
+    is a true insert edit: with every video and audio track unlocked it ripples all of them (with the other
+    tracks locked it ripples only its own). So: unlock everything,
     insert a `frames`-long Text+ at `at` on the destination track, delete it without ripple. Clips that
     span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
-    them afterwards. Titles need a loaded timeline: pass `other` to refresh first. Saves.
-    Returns {"inserted_on": (track type, index), "end_before", "end_after"}. Worked 2026-09-14 (six frames
-    after the Thomas line on Cut v3: V1, V2, V4, A1, A2 and the A3 cue all moved; grades and comps untouched).
+    them afterwards. Grades and comps stay on the moved items. Titles need a loaded timeline: pass `other`
+    to refresh first. Saves. Returns {"inserted_on": (track type, index), "end_before", "end_after"}.
     """
-    from .timelines import refresh_timeline
-    from .titles import insert_fusion_title
     project.SetCurrentTimeline(timeline)
     if other is not None:
         refresh_timeline(project, timeline, other)
@@ -382,28 +365,22 @@ def _place_range(mp, timeline, src: Dict, a: float, b: float, record: int, track
 
     `src` = {"clip", "offset" (session seconds at source frame 0), "fps"}. The source range is sized so the item
     lands exactly `frames` timeline frames (default round((b - a) * tl_fps)); a rate-mapped append can land one
-    frame off, so the end frame is nudged and the item re-appended until the duration matches (two tries).
-    Returns the TimelineItem or None.
+    frame off, so the end frame is nudged and the item re-appended until the duration matches (three retries,
+    the last one kept as is). Returns the TimelineItem or None.
     """
     n = frames if frames is not None else int(round((b - a) * tl_fps))
     f = float(src["fps"])
     sin = int(round((a - src["offset"]) * f))
     send = sin + int(round(n * f / tl_fps)) - 1
-    it = None
-    for _ in range(3):
+    for attempt in range(4):
         new = mp.AppendToTimeline([{"mediaPoolItem": src["clip"], "startFrame": max(sin, 0), "endFrame": send,
                                     "trackIndex": track, "recordFrame": record, "mediaType": media_type}])
         it = new[0] if new else None
-        if not it:
-            return None
-        d = it.GetDuration()
-        if d == n:
+        if not it or it.GetDuration() == n or attempt == 3:
             return it
+        d = it.GetDuration()
         timeline.DeleteClips([it], False)
         send += n - d
-    new = mp.AppendToTimeline([{"mediaPoolItem": src["clip"], "startFrame": max(sin, 0), "endFrame": send,
-                                "trackIndex": track, "recordFrame": record, "mediaType": media_type}])
-    return new[0] if new else None
 
 
 def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Dict], segments: Sequence[Dict],
@@ -413,7 +390,7 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
 
     `sources` maps a key to {"clip": MediaPoolItem, "offset": session seconds at the clip's frame 0, "fps"}: for
     StreamYard isolated recordings the offset is the one in the file name, for a camera it comes from waveform
-    correlation against one of the webcams. A source with its own clock (an intro or outro take) uses offset 0.
+    correlation against one of the call recordings. A source with its own clock (an intro or outro take) uses offset 0.
     Each segment is {"a", "b" (session seconds), "video": key (V1 angle) or None, "audio": [(key, audio_track)],
     "name", "color", "props" (V1 SetProperty dict, e.g. a punch-in), "marker": (name, color, note),
     "overlays": [{"src", "a", "b", "at" (session second inside the segment where it starts, default a), "track",
@@ -423,7 +400,6 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
     Dialogue tracks are mono by default; set each dialogue source clip's track_mapping to its one mic channel
     (`{"1": {"channel_idx": [ch], "type": "mono"}}`) before building. Creates the timeline in `timeline_bin`,
     names tracks, saves. Returns {"length", "placed", "failed"}.
-    Worked 2026-09-23 on the Luke and Dmitry commissioned-app cuts.
     """
     mp = project.GetMediaPool()
     root = mp.GetRootFolder()
@@ -435,8 +411,7 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
     project.SetCurrentTimeline(t)
     fps = float(t.GetSetting("timelineFrameRate"))
     s = t.GetStartFrame()
-    while t.GetTrackCount("video") < len(video_tracks):
-        t.AddTrack("video")
+    add_tracks_until(t, "video", len(video_tracks))
     for i, n in enumerate(video_tracks):
         t.SetTrackName("video", i + 1, n)
     if t.GetTrackSubType("audio", 1) != audio_tracks[0][0]:

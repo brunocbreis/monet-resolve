@@ -4,11 +4,9 @@ from typing import Dict, Optional
 
 from ._util import save
 
-DIRECTIONS = {  # axis driven by the progress, sign of travel for the outgoing clip; names follow the Direction
-    # control of Resolve's simple Push: "right" = the incoming clip comes in from the right and pushes the
-    # outgoing one out to the left (Bruno's push, 2026-09-22).
-    "right": ("X", -1), "left": ("X", 1), "up": ("Y", -1), "down": ("Y", 1),
-}
+# Direction -> (axis driven by the progress, sign of travel for the outgoing clip). Names follow the Direction
+# control of Resolve's Push: "right" means the incoming clip enters from the right and pushes the outgoing one left.
+DIRECTIONS = {"right": ("X", -1), "left": ("X", 1), "up": ("Y", -1), "down": ("Y", 1)}
 
 
 def build_push(comp, direction: str = "right", ease_in: str = "Cubic", ease_out: str = "Cubic") -> Dict:
@@ -18,10 +16,10 @@ def build_push(comp, direction: str = "right", ease_in: str = "Cubic", ease_out:
     "category": "fusion", ...})`: Resolve gives it `MediaIn1` (outgoing), `MediaIn2` (incoming) and
     `MediaOut1`; the dissolve group and its lookup are deleted and replaced by an Anim Curves modifier
     (`LUTLookup`, Source "Transition" so it follows the transition length, Curve "Easing", cubic in and out)
-    driving an XY Path on a Transform per clip (outgoing centre 0.5 → -0.5 on the travel axis for "right",
-    incoming one frame behind via the expression `PushOutPath.X + 1`), merged and sent to MediaOut. `direction`
-    is right/left/up/down in the sense of Resolve's Push Direction control: the side the incoming clip enters from. Call with the Fusion page open. Returns the tool names.
-    Worked 2026-09-22 (Resolve 21.1) on a 16-frame transition.
+    driving an XY Path on a Transform per clip (outgoing center 0.5 → -0.5 on the travel axis for "right",
+    incoming one screen behind via the expression `PushOutPath.X + 1`), merged and sent to MediaOut.
+    `direction` is the side the incoming clip enters from (see DIRECTIONS). Call with the Fusion page open.
+    Returns the tool names and the progress curve settings.
     """
     axis, sign = DIRECTIONS[direction]
     other = "Y" if axis == "X" else "X"
@@ -72,7 +70,7 @@ def add_push_transition(resolve, project, timeline, item, position: str = "end",
     until Resolve restarts); the Fusion page is opened, the comp rebuilt with `build_push`, the item renamed
     "Push <direction>", and the comp optionally written to `save_comp_to` (`Composition.Save`) as the text
     record of the transition (`TimelineItem.ExportFusionComp` returns False on transition items). Back on the
-    Edit page, saves. Returns {"transition": (name, start, duration), "build": ...}. Worked 2026-09-22.
+    Edit page, saves. Returns {"transition": (name, start, duration), "build": ...}.
     """
     s = timeline.GetStartFrame()
     project.SetCurrentTimeline(timeline)

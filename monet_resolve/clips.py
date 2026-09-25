@@ -9,19 +9,19 @@ neighboring start frames until the item's `GetSourceStartFrame()` equals the one
 import json
 from typing import Dict, List, Optional, Sequence
 
-from ._util import save
-
-VIDEO_PROPS = ["ZoomX", "ZoomY", "Pan", "Tilt", "Opacity", "CropLeft", "CropRight", "CropTop", "CropBottom"]
+from ._util import VIDEO_PROPS, items, save
+from .assembly import insert_gap_ripple
 
 
 def append_exact(media_pool, timeline, clip, track: int, record: int, frames: int, source_start: int,
                  media_type: int = 1, exact: bool = True, tries: Sequence[int] = (0, 1, -1, 2)):
     """Append `frames` of `clip` from `source_start` at `record` (relative) on `track`, exact in duration
     and, with `exact`, in source start. For audio (`media_type=2`) source frames are in the clip's own
-    frame rate. Returns the item (the closest one when no try lands exactly; check its source start)."""
+    frame rate. Returns the item (the closest one when no try lands exactly; check its source start),
+    or None when no append reached the duration."""
     s = timeline.GetStartFrame()
-    fps = float(clip.GetClipProperty("FPS") or 24) if media_type == 2 else float(timeline.GetSetting("timelineFrameRate") or 24)
-    ratio = fps / float(timeline.GetSetting("timelineFrameRate") or 24) if media_type == 2 else 1.0
+    tl_fps = float(timeline.GetSetting("timelineFrameRate") or 24)
+    ratio = float(clip.GetClipProperty("FPS") or tl_fps) / tl_fps if media_type == 2 else 1.0
     last = None
     for off in (tries if exact else (0,)):
         sf = source_start + off
@@ -75,12 +75,12 @@ def snapshot(item, kind: str) -> Dict:
     return snap
 
 
-def continue_clip(resolve, project, timeline, item, frames: int, record: Optional[int] = None) -> object:
+def continue_clip(resolve, project, timeline, item, frames: int, record: Optional[int] = None):
     """Append the next `frames` of `item`'s source right after it (or at `record`), on the same track,
     with its Inspector properties, audio mapping, volume, enabled state and color. The join is a
     through-edit: same source, no jump. Use it after `ripple_insert` to fill the opened space, one call
     per track, so a performance or a sentence runs longer in sync on every track. Multicam items come
-    back on the multicam's first angle; set it with `multicam.set_angles`. Ran 2026-09-24."""
+    back on the multicam's first angle; set it with `multicam.set_angles`. Saves. Returns the new item or None."""
     kind, tr = item.GetTrackTypeAndIndex()
     snap = snapshot(item, kind)
     s = timeline.GetStartFrame()
@@ -94,21 +94,23 @@ def continue_clip(resolve, project, timeline, item, frames: int, record: Optiona
 
 
 def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("video", 2),
-                        ("audio", 1), ("audio", 2), ("audio", 3))) -> List[Dict]:
+                        ("audio", 1), ("audio", 2), ("audio", 3)), keep_names_prefix: str = "B-ROLL") -> List[Dict]:
     """Join neighboring items that are really one piece of source into single clips, between `start` and
     `end` (relative).
 
     Two items merge only when they touch on the timeline, share the source clip, the name (so the same
     multicam angle), properties and enabled state, and the second starts on exactly the source frame
     where the first ends. Exactly: a one or two frame tolerance also swallows real edits between two
-    takes and slides the second one out of sync (2026-09-24). Multicam merges come back on the first
-    angle; set it again with `multicam.set_angles`. Saves. Returns [{"kind", "track", "start", "end", "pieces"}].
+    takes and slides the second one out of sync. Merged items keep their name when it starts with
+    `keep_names_prefix` (others, such as multicam angle names, come from the source). Multicam merges come
+    back on the first angle; set it again with `multicam.set_angles`. Saves.
+    Returns [{"kind", "track", "start", "end", "pieces", "ok"}].
     """
     mp = project.GetMediaPool()
     s = timeline.GetStartFrame()
     out = []
     for kind, tr in tracks:
-        its = [x for x in (timeline.GetItemListInTrack(kind, tr) or []) if x.GetMediaPoolItem() and start <= x.GetStart() - s < end]
+        its = [x for x in items(timeline, kind, tr) if x.GetMediaPoolItem() and start <= x.GetStart() - s < end]
         groups: List[List] = []
         for x in its:
             key = (x.GetMediaPoolItem().GetUniqueId(), x.GetName(), x.GetClipEnabled(),
@@ -128,7 +130,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
             n = append_exact(mp, timeline, snap["clip"], tr, a, b - a, snap["source_start"], media_type=1 if kind == "video" else 2)
             if n:
                 _copy_attrs(snap, n)
-                if snap["name"].startswith("B-ROLL"):
+                if snap["name"].startswith(keep_names_prefix):
                     n.SetName(snap["name"])
             out.append({"kind": kind, "track": tr, "start": a, "end": b, "pieces": len(pieces), "ok": bool(n)})
     save(resolve)
@@ -136,8 +138,8 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
 
 
 def shift_markers(timeline, from_frame: int, delta: int) -> int:
-    """Move every timeline marker at or after `from_frame` (relative) by `delta` frames. Ripple edits do
-    not move markers. Returns the count moved."""
+    """Move every timeline marker at or after `from_frame` (relative) by `delta` frames (ripple edits leave
+    markers in place). Returns the count moved."""
     mk = timeline.GetMarkers() or {}
     moved = 0
     for f in sorted(mk, reverse=delta > 0):
@@ -152,15 +154,9 @@ def shift_markers(timeline, from_frame: int, delta: int) -> int:
 def ripple_insert(resolve, project, timeline, at: int, frames: int) -> Dict:
     """Open `frames` of space at `at` on every track, moving clips and markers after it. Clips that span
     `at` are split with an empty stretch between the halves; fill it with `continue_clip`.
-    Uses `assembly.insert_gap_ripple` for the clips. Ran 2026-09-24 (two inserts, markers followed)."""
-    from .assembly import insert_gap_ripple
-    marks = dict(timeline.GetMarkers() or {})
+    `assembly.insert_gap_ripple` moves the clips, `shift_markers` the markers. Saves."""
     r = insert_gap_ripple(resolve, project, timeline, at, frames)
-    for f in sorted(marks, reverse=True):
-        if f >= at:
-            m = marks[f]
-            timeline.DeleteMarkerAtFrame(f)
-            timeline.AddMarker(f + frames, m["color"], m["name"], m["note"], m["duration"], m.get("customData", ""))
+    shift_markers(timeline, at, frames)
     save(resolve)
     return r
 
@@ -168,13 +164,13 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int) -> Dict:
 def items_in_range(timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("audio", 1)), mode: str = "within") -> List:
     """Items with a media pool item between `start` and `end` (relative).
 
-    mode "within": item fully inside. "starts": item starts inside (the one that bites: an audio item
-    that starts inside a range as a J-cut belongs to the NEXT shot). "overlaps": any overlap. Prefer
-    "within" when deleting a block, and list the items first."""
+    mode "within": item fully inside. "starts": item starts inside (an audio item that starts inside a
+    range as a J-cut belongs to the next shot). "overlaps": any overlap. Prefer "within" when deleting a
+    block, and list the items first."""
     s = timeline.GetStartFrame()
     out = []
     for kind, tr in tracks:
-        for x in timeline.GetItemListInTrack(kind, tr) or []:
+        for x in items(timeline, kind, tr):
             if not x.GetMediaPoolItem():
                 continue
             a, b = x.GetStart() - s, x.GetEnd() - s
@@ -186,10 +182,10 @@ def items_in_range(timeline, start: int, end: int, tracks: Sequence = (("video",
 def place_still(resolve, project, timeline, still, track: int, record: int, frames: int, piece: int = 24):
     """Put a still image on the timeline for `frames` frames as one item.
 
-    `AppendToTimeline` gives a still at most the project's standard still duration (24 frames here),
+    `AppendToTimeline` gives a still at most the project's standard still duration (set `piece` to it),
     whatever endFrame says. This appends `piece`-frame copies back to back and turns them into one
-    Fusion clip with `CreateFusionClip`, so the result is a single item to scale and position. Ran
-    2026-09-24 (a 96-frame app icon)."""
+    Fusion clip with `CreateFusionClip`, so the result is a single item to scale and position.
+    Returns the item or None."""
     mp = project.GetMediaPool()
     s = timeline.GetStartFrame()
     project.SetCurrentTimeline(timeline)
@@ -205,5 +201,5 @@ def place_still(resolve, project, timeline, still, track: int, record: int, fram
         p += n
     if len(placed) > 1:
         timeline.CreateFusionClip(placed)
-    its = [x for x in timeline.GetItemListInTrack("video", track) if x.GetStart() - s == record]
+    its = [x for x in items(timeline, "video", track) if x.GetStart() - s == record]
     return its[0] if its else None

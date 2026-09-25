@@ -1,38 +1,29 @@
 """Multicam clips on a timeline: place them in sync, set their angles, swap source clips for them.
 
 The API can create a multicam (`MediaPool.CreateMulticamClip`) and append it, but has no call that
-picks the angle of a multicam timeline item: every appended item shows the multicam's first angle.
-`PerformMulticamSmartSwitch` does not set angles (it returned None and changed nothing, 2026-09-24),
-and Resolve's binary registers no hidden angle method for scripting. The angle is set through the menu
-bar instead (Clip > Multicam Switch > Switch to Angle N) on items selected by a spare clip color;
-`set_angles` does that and restores the colors.
+picks the angle of a multicam timeline item: every appended item shows the multicam's first angle, and
+`PerformMulticamSmartSwitch` leaves angles unchanged. The angle is set through the menu bar instead
+(Clip > Multicam Switch > Switch to Angle N) on items selected by a spare clip color; `set_angles` does
+that and restores the colors.
 
-Angle numbers follow the angle names in alphabetical order (seen on two multicams built with
-MULTICAM_ANGLE_NAME_ANGLE: "Luke Webcam, Pedro Cam, Pedro Webcam, Screen" were 1-4 whatever the clip
-order passed to CreateMulticamClip). `angle_numbers` computes that mapping; check one angle on a render.
+Angle numbers follow the angle names in alphabetical order (with MULTICAM_ANGLE_NAME_ANGLE), whatever the
+clip order passed to `CreateMulticamClip`. `angle_numbers` computes that mapping; check one angle on a render.
 
 Timeline item names ("mcam - x - Angle Y") only refresh after the timeline reloads, so verify angles
 by rendering a frame, not by `GetName()`.
 """
-import json
 import time
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from . import ui
-from ._util import save
+from ._util import VIDEO_PROPS, items, save, tc_seconds
+from .clips import append_exact
 
 SPARE_COLORS = ["Chocolate", "Navy", "Orange", "Pink", "Lime", "Apricot", "Olive", "Tan", "Beige", "Brown"]
-PROPS = ["ZoomX", "ZoomY", "Pan", "Tilt", "Opacity", "CropLeft", "CropRight", "CropTop", "CropBottom", "FlipX", "FlipY",
-         "RotationAngle", "AnchorPointX", "AnchorPointY", "CompositeMode", "CropSoftness", "CropRetain", "DynamicZoomEase"]
-
-
-def tc_seconds(timecode: str, fps: float) -> float:
-    h, m, s, f = [int(v) for v in timecode.replace(";", ":").split(":")]
-    return h * 3600 + m * 60 + s + f / round(fps)
 
 
 def angle_numbers(angle_names: Iterable[str]) -> Dict[str, int]:
-    """{angle name: angle number} in Resolve's order (alphabetical by angle name, observed 2026-09-24)."""
+    """{angle name: angle number} in Resolve's order (alphabetical by angle name)."""
     return {n: i + 1 for i, n in enumerate(sorted(set(angle_names)))}
 
 
@@ -41,7 +32,7 @@ def multicam_frame(mcam, clip, source_frame: float, fps: float = 24.0) -> int:
 
     Uses both Start TCs: (clip start + source_frame / clip fps) - multicam start, in `fps` frames. Exact
     for the clips the multicam was built from with MULTICAM_ANGLE_SYNC_TIMECODE; within one frame for
-    25/30 fps angles in a 24 fps multicam. Ran 2026-09-24.
+    25/30 fps angles in a 24 fps multicam.
     """
     cfps = float(clip.GetClipProperty("FPS") or fps)
     t = tc_seconds(clip.GetClipProperty("Start TC"), cfps) + source_frame / cfps
@@ -50,25 +41,14 @@ def multicam_frame(mcam, clip, source_frame: float, fps: float = 24.0) -> int:
 
 def place_multicam(media_pool, timeline, mcam, track: int, record: int, frames: int, mcam_start: int,
                    props: Optional[Dict] = None, media_type: int = 1):
-    """Append `frames` of the multicam from `mcam_start` at `record` (relative) on `track`; nudge the end
-    until the duration is exact; apply Inspector `props`. The item shows the multicam's first angle until
-    `set_angles` runs. Returns the TimelineItem or None. Ran 2026-09-24."""
-    s = timeline.GetStartFrame()
-    end = mcam_start + frames - 1
-    for _ in range(5):
-        r = media_pool.AppendToTimeline([{"mediaPoolItem": mcam, "startFrame": mcam_start, "endFrame": end,
-                                          "trackIndex": track, "recordFrame": s + record, "mediaType": media_type}])
-        n = r[0] if r else None
-        if not n:
-            return None
-        if n.GetDuration() == frames:
-            break
-        d = n.GetDuration()
-        timeline.DeleteClips([n], False)
-        end += frames - d
-    for k, v in (props or {}).items():
-        if v is not None:
-            n.SetProperty(k, v)
+    """Append `frames` of the multicam from `mcam_start` at `record` (relative) on `track` with an exact
+    duration (`clips.append_exact`), then apply Inspector `props`. The item shows the multicam's first
+    angle until `set_angles` runs. Returns the TimelineItem or None."""
+    n = append_exact(media_pool, timeline, mcam, track, record, frames, mcam_start, media_type=media_type, exact=False)
+    if n:
+        for k, v in (props or {}).items():
+            if v is not None:
+                n.SetProperty(k, v)
     return n
 
 
@@ -78,13 +58,12 @@ def set_angles(resolve, project, timeline, assignments: Sequence, spare_colors: 
     `assignments` is [(timeline_item, angle_number)]. Items are grouped by angle; each group gets a spare
     clip color no item on the timeline uses, is selected with Select Clips > By Clip Color, and gets
     Switch to Angle N. Original colors come back afterwards. Opens the Edit page (the menu item is
-    disabled on Deliver and Color). Works with the screen locked. Saves.
-    Returns {angle: count}. Ran as separate steps 2026-09-24; assembled here, not yet run as one call.
+    disabled on Deliver and Color). Works with the screen locked. Saves. Returns {angle: count}.
     """
     project.SetCurrentTimeline(timeline)
     resolve.OpenPage("edit")
     used = {x.GetClipColor() for kind in ("video", "audio") for t in range(1, timeline.GetTrackCount(kind) + 1)
-            for x in (timeline.GetItemListInTrack(kind, t) or [])}
+            for x in items(timeline, kind, t)}
     free = [c for c in spare_colors if c not in used]
     groups: Dict[int, List] = {}
     for it, angle in assignments:
@@ -116,7 +95,6 @@ def swap_to_multicam(resolve, project, timeline, mcam, sources: Dict[str, str], 
     items are separate and stay untouched (check with GetLinkedItems first; a linked audio item would go
     with the delete). Grades on the old items are not carried; grade the angles inside the multicam.
     Returns [{"item", "angle", "start", "dur", "mf"}] ready for `set_angles` (use `angle_numbers`).
-    Ran as a script on two timelines 2026-09-24 (39 and 38 items, zero duration mismatches).
     """
     mp = project.GetMediaPool()
     project.SetCurrentTimeline(timeline)
@@ -124,11 +102,11 @@ def swap_to_multicam(resolve, project, timeline, mcam, sources: Dict[str, str], 
     s = timeline.GetStartFrame()
     log = []
     for tr in tracks:
-        for x in list(timeline.GetItemListInTrack("video", tr) or []):
+        for x in items(timeline, "video", tr):
             m = x.GetMediaPoolItem()
             if not m or m.GetClipProperty("File Name") not in sources:
                 continue
-            snap = {"start": x.GetStart() - s, "dur": x.GetDuration(), "props": {k: x.GetProperty(k) for k in PROPS},
+            snap = {"start": x.GetStart() - s, "dur": x.GetDuration(), "props": {k: x.GetProperty(k) for k in VIDEO_PROPS},
                     "name": x.GetName(), "color": x.GetClipColor(), "enabled": x.GetClipEnabled(),
                     "angle": sources[m.GetClipProperty("File Name")],
                     "mf": multicam_frame(mcam, m, x.GetSourceStartFrame())}

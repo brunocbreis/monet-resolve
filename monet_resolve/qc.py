@@ -1,6 +1,6 @@
 """Editorial QC for assembly cuts built from transcripts: edge placement, rule checks, a paper edit.
 
-This is the gate a cut passes before it is shown to Bruno. It works on the cut *plan* (the list of
+This is the gate a cut passes before delivery. It works on the cut *plan* (the list of
 segments `assembly.build_synced_cut` takes), the word timings of every source clock and audio
 envelopes of the dialogue tracks, so it runs in seconds and needs no render.
 
@@ -12,7 +12,10 @@ short beat) and "reviewed" (a REVIEW finding was read and accepted, with a reaso
 
 Rules and thresholds live in RULES so they can be tuned per project. Severity: FAIL blocks delivery,
 WARN must be fixed or justified in the notes, REVIEW means a human-style read is required.
-Worked 2026-09-23 on the Luke and Dmitry commissioned-app cuts (every rule below was a real miss).
+
+`solo_env` (check_cut, fix_edges) maps an audio source key to the index of its envelope in
+`envs[clock]`: a segment whose audio all comes from that one source is checked against that envelope
+alone, so the other speaker's mic does not flag its edges.
 """
 import re
 import wave
@@ -89,14 +92,14 @@ def place_edges(words: Sequence[Sequence], envs: Sequence[Dict], speaker: str, t
     next_start = min([w[0] for w in others if w[0] > ws[-1][0] + 0.01] or [b_w + 5])
     a = max(a_w - rules["lead"], prev_end + 0.06)
     b = min(b_w + rules["tail"], next_start - 0.06)
-    a = _quietest(envs, a, 0.08)
-    b = _quietest(envs, b, 0.08)
+    a = _quietest(envs, a, 0.08, rules["silence_db"])
+    b = _quietest(envs, b, 0.08, rules["silence_db"])
     return {"a": round(a, 3), "b": round(b, 3), "text": " ".join(str(w[3]) for w in ws),
             "first": ws[0][3], "last": ws[-1][3]}
 
 
-def _quietest(envs, t, radius):
-    if level(envs, t) <= RULES["silence_db"]:
+def _quietest(envs, t, radius, silence_db):
+    if level(envs, t) <= silence_db:
         return t
     best, bt = 1e9, t
     k = -radius
@@ -110,9 +113,27 @@ def _quietest(envs, t, radius):
 
 # ---------------------------------------------------------------- the rule set
 
+def _continuous(segments, clock_of, i, j) -> bool:
+    """Segment j continues segment i on the same clock with no gap (a through-edit, not a hard cut)."""
+    return (0 <= i < len(segments) and 0 <= j < len(segments) and not segments[i].get("gap")
+            and clock_of.get(segments[i]["video"], "session") == clock_of.get(segments[j]["video"], "session")
+            and abs(segments[i]["b"] - segments[j]["a"]) < 0.02)
+
+
+def _segment_envs(s, envs, clock, solo_env):
+    """The dialogue envelopes that matter for segment `s` (see `solo_env` in the module docstring)."""
+    E = envs.get(clock, [])
+    keys = {k for k, _ in s["audio"]}
+    if solo_env and len(keys) == 1 and next(iter(keys)) in solo_env:
+        i = solo_env[next(iter(keys))]
+        return E[i:i + 1]
+    return E
+
+
 def check_cut(segments: Sequence[Dict], words: Dict[str, List], envs: Dict[str, List[Dict]],
               clock_of: Dict[str, str], speaker_of: Dict[str, str], screen_keys: Sequence[str] = (),
-              target_s: Optional[Sequence[float]] = None, rules: Dict = RULES, fps: float = 24.0) -> List[Dict]:
+              target_s: Optional[Sequence[float]] = None, rules: Dict = RULES, fps: float = 24.0,
+              solo_env: Optional[Dict[str, int]] = None) -> List[Dict]:
     """Run every rule over a cut plan. Returns findings sorted by position in the cut.
 
     `words[clock]` and `envs[clock]` hold the word list and dialogue envelopes per clock ("session",
@@ -131,15 +152,11 @@ def check_cut(segments: Sequence[Dict], words: Dict[str, List], envs: Dict[str, 
         out.append({"severity": sev, "rule": rule, "seg": i, "at": round(at, 2), "detail": detail})
 
     def cont(i, j):
-        return (0 <= i < len(segments) and 0 <= j < len(segments) and not segments[i].get("gap")
-                and clock_of.get(segments[i]["video"], "session") == clock_of.get(segments[j]["video"], "session")
-                and abs(segments[i]["b"] - segments[j]["a"]) < 0.02)
+        return _continuous(segments, clock_of, i, j)
 
     for i, s in enumerate(segments):
         ck = clock_of.get(s["video"], "session")
-        W, E = words.get(ck, []), envs.get(ck, [])
-        if s["audio"] and all(k == "pw" for k, _ in s["audio"]) and ck == "session":
-            E = E[:1]
+        W, E = words.get(ck, []), _segment_envs(s, envs, ck, solo_env)
         ws = [w for w in W if s["a"] <= (w[0] + w[1]) / 2 < s["b"]]
         txt = " ".join(str(w[3]) for w in ws)
         dur = s["b"] - s["a"]
@@ -244,7 +261,8 @@ def report(findings: Sequence[Dict]) -> str:
 
 
 def fix_edges(segments: List[Dict], words: Dict[str, List], envs: Dict[str, List[Dict]], clock_of: Dict[str, str],
-              quiet_db: float = -42.0, reach: float = 0.4, rules: Dict = RULES) -> List[str]:
+              quiet_db: float = -42.0, reach: float = 0.4, rules: Dict = RULES,
+              solo_env: Optional[Dict[str, int]] = None) -> List[str]:
     """Move every hard edge that sits in speech to the nearest quiet point on all dialogue tracks.
 
     An in edge may move earlier (up to `reach`) or later but never past the segment's first own word;
@@ -253,22 +271,14 @@ def fix_edges(segments: List[Dict], words: Dict[str, List], envs: Dict[str, List
     including edges it could not fix (those need a different cut point chosen by hand).
     """
     log = []
-
-    def cont(i, j):
-        return (0 <= i < len(segments) and 0 <= j < len(segments) and not segments[i].get("gap")
-                and clock_of.get(segments[i]["video"], "session") == clock_of.get(segments[j]["video"], "session")
-                and abs(segments[i]["b"] - segments[j]["a"]) < 0.02)
-
     for i, s in enumerate(segments):
         ck = clock_of.get(s["video"], "session")
-        E = envs.get(ck, [])
+        E = _segment_envs(s, envs, ck, solo_env)
         if not E:
             continue
-        if s["audio"] and all(k == "pw" for k, _ in s["audio"]) and ck == "session":
-            E = E[:1]
         own = [w for w in words.get(ck, []) if s["a"] <= (w[0] + w[1]) / 2 < s["b"]]
         for name in ("a", "b"):
-            if (name == "a" and cont(i - 1, i)) or (name == "b" and cont(i, i + 1)):
+            if (name == "a" and _continuous(segments, clock_of, i - 1, i)) or (name == "b" and _continuous(segments, clock_of, i, i + 1)):
                 continue
             edge = s[name]
             peak = max(level(E, edge + k * 0.01) for k in range(-3, 4))
@@ -306,7 +316,7 @@ def silent_audio_items(items: Sequence[Dict], words: Sequence[Sequence], sources
     None for a non-dialogue source with "keep_from"/"keep_to" session seconds where its sound is wanted}.
     Rule behind it: only what is meant to be heard stays enabled; a second mic under an answer adds room
     tone and "yeah"s, and a screen recording's audio plays only where its sound is the point.
-    Returns the items to disable with a "why". Worked 2026-09-23.
+    Returns the items to disable with a "why".
     """
     out = []
     for it in items:

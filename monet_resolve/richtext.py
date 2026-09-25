@@ -13,15 +13,11 @@ another, and loading another project to look at it can crash Resolve. The route 
 5. `Timeline.CreateFusionClip([item])` makes a media pool item any timeline can `AppendToTimeline`.
    The result is a Fusion clip wrapping the Text title, so its words are edited by opening the clip.
 
-Needs `pip install zstandard` (the `richtext` extra). Ran 2026-09-24 for a title card, an end card
-and two lower thirds (name in one font, role in another), each checked on a rendered frame.
+Needs `pip install zstandard` (the `richtext` extra).
 """
-import glob
-import os
 import re
-import tempfile
 import zipfile
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 HEADER_MAGIC = bytes.fromhex("00000002")
 
@@ -103,7 +99,6 @@ def replace_text(data: bytes, old: str, new: str) -> bytes:
     # walk the chain and rewrite its lengths
     if d[0] != 0x0A:
         raise ValueError("unexpected title layout (byte 0)")
-    marks = [(0, 0x0A)]
     p = 1; L1, p = _rvar(d, p)
     j = d.find(b"\x4a", p + 6)                       # skip "08 30 18 00 38 00 4a 00"
     while d[j + 1] == 0x00:
@@ -201,7 +196,7 @@ def title_drt(template_drt: str, generator_xml: str, out_path: str, timeline_nam
 def import_title_as_clip(resolve, project, drt_path: str, name: str, folder=None):
     """Import a title DRT as timeline `name` (in `folder`), wrap its title in a Fusion clip and return
     that media pool item, ready for `AppendToTimeline`. The helper timeline stays (it holds the source).
-    Append with endFrame = duration (not duration - 1) to get the full length (seen 2026-09-24)."""
+    Append with endFrame = duration (not duration - 1) to get the full length."""
     mp = project.GetMediaPool()
     if folder:
         mp.SetCurrentFolder(folder)

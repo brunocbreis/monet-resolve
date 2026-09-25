@@ -13,7 +13,7 @@ def walk_folders(folder) -> List:
 
 
 def list_bins(media_pool) -> List[str]:
-    """The bin tree as indented 'name/' lines, root first. Worked 2026-09-11."""
+    """The bin tree as indented 'name/' lines, root first."""
     def walk(f, d=0, out=None):
         out = [] if out is None else out
         out.append("  " * d + f.GetName() + "/")
@@ -59,7 +59,7 @@ def import_to_bin(media_pool, paths: Iterable[str], bin_name: str,
     """Import files into a root-level bin (created when missing) and report each clip's properties.
 
     `ImportMedia` lands in the current bin, so the bin is made current for the import and the root
-    restored afterward. Returns [{"name": ..., <prop>: value, ...}]. Worked 2026-09-11.
+    restored afterward. Returns [{"name": ..., <prop>: value, ...}].
     """
     root = media_pool.GetRootFolder()
     bins = {f.GetName(): f for f in root.GetSubFolderList()}
@@ -74,7 +74,7 @@ def import_file_once(media_pool, folder, path: str):
     """Return the clip in `folder` whose 'File Path' is `path`, importing it into `folder` when absent.
 
     Leaves `folder` as the current bin (callers restore the root when they need to). Returns None when
-    the import fails. Shared by swap_gfx_clip and create_gfx_timeline_from_clip. Worked 2026-09-11.
+    the import fails. Shared by swap_gfx_clip and create_gfx_timeline_from_clip.
     """
     media_pool.SetCurrentFolder(folder)
     have = [c for c in folder.GetClipList() if c.GetClipProperty("File Path") == path]
@@ -86,7 +86,6 @@ def replace_clip_file(resolve, folder, replacements: Dict[str, str]) -> List:
 
     `replacements` maps clip name to the new absolute path. `MediaPoolItem.ReplaceClip(path)` repoints
     the clip and keeps its pool name. Saves. Returns [(name, ok, frames, file_path)] or (name, "missing").
-    Worked 2026-09-11.
     """
     clips = {c.GetName(): c for c in folder.GetClipList()}
     log = []
@@ -108,7 +107,6 @@ def cleanup_scratch(resolve, project, timelines: Sequence[str] = (), scratch_bin
     Destructive and not undoable from the API: `DeleteTimelines`, `DeleteClips`, `DeleteFolders`. Requires
     `confirm=True`; run `map_project` first and check the names. `stray_prefix="Fusion Clip"` removes the
     "Fusion Clip N" items `CreateFusionClip` leaves in the current bin. Saves. Returns what was deleted.
-    Worked 2026-09-11.
     """
     if not confirm:
         raise ValueError("cleanup_scratch deletes timelines, clips and bins; pass confirm=True")

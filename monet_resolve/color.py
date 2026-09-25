@@ -14,7 +14,8 @@ def grade_all_clips(resolve, project, timeline, drx: str, nodes: int, cdls: Sequ
     this returns {"attr_ok": False} without grading; re-run instead of looping. A clip gets
     `ApplyGradeFromDRX(drx, 0)` when `GetNumNodes() != nodes`; every clip gets each `SetCDL(cdl)` where a
     cdl is {"NodeIndex", "Slope", "Offset", "Power", "Saturation"}. Saves and returns to the Edit page.
-    Returns {"attr_ok", "clips", "drx_applied", "cdl_set", "node_counts"}. Worked 2026-09-11.
+    A DRX built for log footage expects the clips' input color space to be set first (`set_input_color_space`).
+    Returns {"attr_ok", "clips", "drx_applied", "cdl_set", "node_counts"}.
     """
     pm = resolve.GetProjectManager()
     pm.SaveProject()
@@ -45,7 +46,7 @@ def set_input_color_space(resolve, clip, candidates: Sequence[str]) -> Dict:
 
     `SetClipProperty("Input Color Space", name)` returns False on the wrong spelling and lists no accepted
     names, so pass the variants (for Sony S-Log2: "Sony S-Gamut/S-Log2", "Sony S-Gamut S-Log2",
-    "S-Gamut/S-Log2"). Saves. Returns {"clip", "tried": {name: bool}, "input_color_space"}. Worked 2026-09-11.
+    "S-Gamut/S-Log2"). Saves. Returns {"clip", "tried": {name: bool}, "input_color_space"}.
     """
     tried = {}
     for cs in candidates:
@@ -64,7 +65,7 @@ def export_stills(resolve, project, timeline, out_dir: str, frames: Dict[str, in
     Moves the playhead with `SetCurrentTimecode`, sleeps `settle` seconds, then
     `Project.ExportCurrentFrameAsStill(path)`. Color-page stills show the current clip's grade alone, with
     no upper tracks; `render.render_frame_tiff` is the ground truth for titles. Returns to the Edit page.
-    Returns {name: (ok, timecode)}. Worked 2026-09-11.
+    Returns {name: (ok, timecode)}.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()

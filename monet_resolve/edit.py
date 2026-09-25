@@ -1,7 +1,8 @@
-"""Edit-page clip attributes: punch-ins."""
-from typing import Dict, Sequence, Tuple
+"""Edit-page clip attributes: punch-ins and freeze frames."""
+import time
+from typing import Dict, Optional, Sequence, Tuple
 
-from ._util import items, save, tc
+from ._util import items, save, tc, timeline_fps
 
 
 def punch_in_clips(resolve, project, timeline, punches: Sequence[Tuple[int, str]], track: int = 1,
@@ -11,7 +12,7 @@ def punch_in_clips(resolve, project, timeline, punches: Sequence[Tuple[int, str]
     `punches` is [(start_frame, note)] with frames relative to the timeline start; each clip gets
     `SetProperty` for ZoomX, ZoomY and Tilt, and a 1-frame marker named "PUNCH-IN <zoom>x" replaces any
     marker at that frame. Zoom 1.0 / Tilt 0 restores the wide framing. Saves.
-    Returns {start: (name, ZoomX, Tilt)}. Worked 2026-09-11.
+    Returns {start: (name, ZoomX, Tilt)}.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
@@ -36,7 +37,7 @@ def alternate_punch_ins(resolve, project, timeline, track: int = 1, zoom: float 
     same take keeps it: same id (first word of the clip name) and source frames that continue within 2
     frames. Disabled (b-roll slot) clips alternate too so the camera returns in the other framing.
     Deletes every marker of `marker_color`, then adds one per punched-in enabled clip that starts a take.
-    Saves. Returns {"camera": [(start, id, "W"|"P")] for enabled clips}. Worked 2026-09-11.
+    Saves. Returns {"camera": [(start, id, "W"|"P")] for enabled clips}.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
@@ -71,20 +72,17 @@ def alternate_punch_ins(resolve, project, timeline, track: int = 1, zoom: float 
     return {"camera": [(st, tid, fr) for st, tid, on, fr, cont in plan if on]}
 
 
-def freeze_item(timeline, item, fps: int = 24, settle: float = 0.4) -> Dict:
+def freeze_item(timeline, item, fps: Optional[int] = None, settle: float = 0.4) -> Dict:
     """Turn a timeline item into a freeze frame of its first source frame, keeping its duration.
 
     `TimelineItem.SetSpeed({"Percentage": 0.0})` freezes on the frame under the playhead (clamped to the
     item), so the playhead is parked on the item's first frame first (`SetCurrentTimecode`, absolute) and
     the call waits `settle` seconds. The item keeps its duration and `GetSourceStartFrame() ==
-    GetSourceEndFrame()` afterwards; a Deliver render of the first and last frame came back pixel-identical
-    (SSIM 1.0). To freeze a chosen frame f for D timeline frames, append the source range [f, f + n) where
+    GetSourceEndFrame()` afterwards and the first and last frame render identical. To freeze a chosen frame f for D timeline frames, append the source range [f, f + n) where
     n gives D frames at the clip's rate (n = D * source_fps / timeline_fps), then call this.
-    Returns {"ok": bool, "duration", "source_frame"}. Worked 2026-09-14 (Resolve 21.1, 60p clip on 24p).
+    Returns {"ok": bool, "duration", "source_frame"}.
     """
-    import time
-    s = timeline.GetStartFrame()
-    timeline.SetCurrentTimecode(tc(item.GetStart(), fps))
+    timeline.SetCurrentTimecode(tc(item.GetStart(), fps or timeline_fps(timeline)))
     time.sleep(settle)
     ok = item.SetSpeed({"Percentage": 0.0})
     return {"ok": bool(ok), "duration": item.GetDuration(), "source_frame": item.GetSourceStartFrame()}

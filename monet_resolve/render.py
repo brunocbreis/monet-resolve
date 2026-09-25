@@ -14,7 +14,6 @@ def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], t
     MarkOut` in absolute frames with `SelectAllFrames: False`. Waits up to `timeout` seconds while
     `IsRenderingInProgress()`. This is the ground truth for checking titles and upper tracks as pixels.
     Returns {"format": SetCurrentRenderFormatAndCodec result, "status": [GetRenderJobStatus per job]}.
-    Worked 2026-09-11.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
@@ -41,7 +40,6 @@ def render_timeline_mp4(resolve, project, timeline, out_dir: str, name: str, wid
     `SetCurrentRenderFormatAndCodec("mp4", "H264")` plus `FormatWidth`/`FormatHeight` because preset names
     vary between machines. Polls `GetRenderJobStatus` once a second for up to `wait` seconds; a long render
     outlives the call, so poll the returned job id again later. Returns {"job", "started", "status"}.
-    Worked 2026-09-11.
     """
     project.SetCurrentTimeline(timeline)
     save(resolve)

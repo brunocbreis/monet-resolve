@@ -2,7 +2,7 @@
 import time
 from typing import Dict
 
-from ._util import items, list_timelines, save, track_locks
+from ._util import add_tracks_until, items, list_timelines, save, track_locks
 from .media import import_file_once
 
 
@@ -18,7 +18,6 @@ def create_gfx_timeline_from_clip(resolve, project, path: str, gfx_bin, timeline
     frame 0 to `frames` at `record` (frames from the cut start). Re-render later with
     `media.replace_clip_file` or `assembly.swap_gfx_clip`. Saves.
     Returns {"clip", "frames_in_file", "timeline_created", "appended", "track": [(name, start, duration)]}.
-    Worked 2026-09-11.
     """
     mp = project.GetMediaPool()
     root = mp.GetRootFolder()
@@ -33,8 +32,7 @@ def create_gfx_timeline_from_clip(resolve, project, path: str, gfx_bin, timeline
     s = cut.GetStartFrame()
     time.sleep(1)
     tl_item = [c for c in timeline_bin.GetClipList() if c.GetName() == gfx_timeline][0]
-    while cut.GetTrackCount("video") < track:
-        cut.AddTrack("video")
+    add_tracks_until(cut, "video", track)
     with track_locks(cut, track):
         old = [x for x in items(cut, "video", track) if x.GetName() == gfx_timeline]
         if old:

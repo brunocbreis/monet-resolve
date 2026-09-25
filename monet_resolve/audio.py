@@ -2,7 +2,7 @@
 import json
 from typing import Dict, Sequence, Tuple
 
-from ._util import items, save
+from ._util import add_tracks_until, items, save
 
 
 def sync_external_audio(resolve, media_pool, video_clip, audio_clip, channel_number: int = 1) -> bool:
@@ -10,7 +10,7 @@ def sync_external_audio(resolve, media_pool, video_clip, audio_clip, channel_num
 
     Afterward the camera clip carries the external channels after its own (ch 1-2 camera mic, ch 3-4
     external mic) and keeps its embedded audio (`retainEmbeddedAudio`, `retainVideoMetadata` both True).
-    Returns the API's boolean. Worked 2026-09-11.
+    Returns the API's boolean.
     """
     return media_pool.AutoSyncAudio([video_clip, audio_clip], {
         "syncMode": resolve.AUDIO_SYNC_WAVEFORM,
@@ -31,7 +31,6 @@ def set_clip_audio_mapping(clip, mapping: Dict = DIALOGUE_MONO_CAMERA_STEREO) ->
     (the timeline's A1 must be a mono track for this to line up). Reads `GetAudioMapping()` as JSON, swaps
     `track_mapping`, writes it back with `SetAudioMapping`. Items already on a timeline keep their mapping;
     see `remap_timeline_audio_items`. Returns {"clip_set": bool, "map": the mapping read back}.
-    Worked 2026-09-11.
     """
     m = json.loads(clip.GetAudioMapping())
     m["track_mapping"] = mapping
@@ -43,7 +42,6 @@ def remap_timeline_audio_items(project, timeline, mapping: Dict = DIALOGUE_MONO_
 
     Makes the timeline current first: `GetSourceAudioChannelMapping()` returns None on items of a timeline
     that is not current and on transition items, which are skipped. Returns the count remapped.
-    Worked 2026-09-11.
     """
     project.SetCurrentTimeline(timeline)
     ok = 0
@@ -64,7 +62,7 @@ def audio_crossfades(resolve, project, timeline, track: int = 1, frames: int = 4
 
     Iterates items that have a media pool item (transitions have none), and where `x.GetEnd() ==
     y.GetStart()` calls `x.AddTransition({"type", "category": "audio", "position": "end", "alignment":
-    "center", "duration": frames})`. Saves. Returns {"crossfades": added, "clips": count}. Worked 2026-09-11.
+    "center", "duration": frames})`. Saves. Returns {"crossfades": added, "clips": count}.
     """
     project.SetCurrentTimeline(timeline)
     resolve.OpenPage("edit")
@@ -88,15 +86,13 @@ def place_music(resolve, project, timeline, track: int, music_bin,
     track first (destructive). Each cue is `AppendToTimeline` with `mediaType: 2`, then `SetName`,
     `SetClipColor`, `SetProperty("AudioVolume", dB)`, `SetFades({"FadeIn", "FadeOut"})`. Saves.
     Returns {"placed": [(name, start, end, volume, fades)] or (name, "FAILED"), "cut_end": frames}.
-    Worked 2026-09-11.
     """
     mp = project.GetMediaPool()
     music = {c.GetName(): c for c in music_bin.GetClipList()}
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
     resolve.OpenPage("edit")
-    while timeline.GetTrackCount("audio") < track:
-        timeline.AddTrack("audio", "stereo")
+    add_tracks_until(timeline, "audio", track, "stereo")
     if clear_track:
         old = [x for x in items(timeline, "audio", track) if x.GetMediaPoolItem()]
         if old:
@@ -124,15 +120,15 @@ def resync_item_mappings(project, timeline, tracks: Sequence[int] = ()) -> Dict:
     mapping) can end up on the timeline mapped to the camera's scratch channel: moving items between
     tracks or re-appending them keeps an old item mapping. For every item whose media pool clip has a
     `linked_audio` entry, this sets the item's track_mapping to the clip's with
-    `SetSourceAudioChannelMapping`. Items without `linked_audio` are skipped on purpose: a plain webcam
-    clip's pool mapping can be stereo while its dialogue items were set mono per item. Transitions return
-    None for the mapping and are skipped. Returns {"fixed": [(track, start)], "ok": n}. Ran 2026-09-24.
+    `SetSourceAudioChannelMapping`. Items without `linked_audio` keep their mapping, since a plain clip's
+    pool mapping can be stereo while its dialogue items were set mono per item. Transitions return
+    None for the mapping and are skipped. Returns {"fixed": [(track, start)], "ok": n}.
     """
     project.SetCurrentTimeline(timeline)
     s = timeline.GetStartFrame()
     out = {"fixed": [], "ok": 0}
     for tr in (tracks or range(1, timeline.GetTrackCount("audio") + 1)):
-        for x in timeline.GetItemListInTrack("audio", tr) or []:
+        for x in items(timeline, "audio", tr):
             m = x.GetMediaPoolItem()
             cur = x.GetSourceAudioChannelMapping()
             if not m or not cur:

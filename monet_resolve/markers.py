@@ -1,14 +1,17 @@
 """Markers."""
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
+
+from ._util import timeline_fps
 
 
-def beat_markers(timeline, beats: Sequence[Tuple[float, str, str]], fps: int = 24, note: str = "beat") -> Dict:
+def beat_markers(timeline, beats: Sequence[Tuple[float, str, str]], fps: Optional[int] = None, note: str = "beat") -> Dict:
     """Replace every marker on a timeline with one named, colored marker per beat.
 
     `beats` is [(seconds, name, color)]; seconds become `round(sec * fps)` frames relative to the timeline
     start. Deletes all existing markers first (`DeleteMarkerAtFrame`), then `AddMarker` with duration 1.
-    Returns `timeline.GetMarkers()`. Worked 2026-09-11.
+    Returns `timeline.GetMarkers()`.
     """
+    fps = fps or timeline_fps(timeline)
     for k in list(timeline.GetMarkers().keys()):
         timeline.DeleteMarkerAtFrame(int(k))
     for sec, name, color in beats:

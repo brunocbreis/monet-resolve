@@ -6,6 +6,11 @@ named `record_frame`, which is absolute, matching the Resolve API. `tc()` takes 
 from contextlib import contextmanager
 from typing import Iterator, List, Optional
 
+# Edit-page Inspector properties carried over when an item is deleted and re-appended.
+VIDEO_PROPS = ["ZoomX", "ZoomY", "Pan", "Tilt", "AnchorPointX", "AnchorPointY", "RotationAngle", "FlipX", "FlipY",
+               "Opacity", "CompositeMode", "CropLeft", "CropRight", "CropTop", "CropBottom", "CropSoftness",
+               "CropRetain", "DynamicZoomEase"]
+
 
 def tc(frame: int, fps: int = 24) -> str:
     """Absolute frame number to 'hh:mm:ss:ff' at an integer frame rate.
@@ -15,6 +20,12 @@ def tc(frame: int, fps: int = 24) -> str:
     """
     fps = int(fps)
     return f"{frame // fps // 3600:02d}:{frame // fps // 60 % 60:02d}:{frame // fps % 60:02d}:{frame % fps:02d}"
+
+
+def tc_seconds(timecode: str, fps: float) -> float:
+    """'hh:mm:ss:ff' (or drop-frame 'hh:mm:ss;ff') to seconds."""
+    h, m, sec, f = [int(v) for v in timecode.replace(";", ":").split(":")]
+    return h * 3600 + m * 60 + sec + f / round(fps)
 
 
 def timeline_fps(timeline) -> int:
@@ -41,6 +52,15 @@ def find_timeline(project, name: str):
 def items(timeline, kind: str, index: int) -> List:
     """`GetItemListInTrack` with the None-for-empty-track quirk folded into an empty list."""
     return timeline.GetItemListInTrack(kind, index) or []
+
+
+def add_tracks_until(timeline, kind: str, count: int, subtype: Optional[str] = None) -> None:
+    """Add `kind` tracks ("video" or "audio", with `subtype` such as "stereo") until the timeline has `count`."""
+    while timeline.GetTrackCount(kind) < count:
+        if subtype:
+            timeline.AddTrack(kind, subtype)
+        else:
+            timeline.AddTrack(kind)
 
 
 def clean_name(name: str) -> str:

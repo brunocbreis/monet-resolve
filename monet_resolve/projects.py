@@ -11,7 +11,6 @@ def load_project(resolve, name: str) -> Tuple[object, Dict]:
 
     `info` has the project name, its timeline names, the current timeline name, the project frame rate
     and resolution. After `LoadProject` any previously held Project object is stale: use the returned one.
-    Worked 2026-09-11.
     """
     pm = resolve.GetProjectManager()
     p = pm.GetCurrentProject()
@@ -33,7 +32,7 @@ def map_project(project, timeline_name: Optional[str] = None) -> Dict:
 
     Run first in any session to snapshot the layout before a destructive step. `timeline_name` defaults
     to the current timeline. Items come back as (name, start, duration, color) with start relative to
-    the timeline start. Worked 2026-09-11 (Resolve 21.1).
+    the timeline start.
     """
     tls = list_timelines(project)
     cut = find_timeline(project, timeline_name) if timeline_name else project.GetCurrentTimeline()

@@ -6,7 +6,7 @@ exposes every one of them to accessibility, so a script can press the exact menu
 This is precise (a named menu item, never a screen coordinate) and it keeps working while the Mac's
 screen is locked. Keystrokes and window contents are the exception: they need an unlocked screen.
 
-Requirements: macOS, and the app running the script (Terminal, Claude, iTerm) allowed under System
+Requirements: macOS, and the app running the script (a terminal, an agent host) allowed under System
 Settings, Privacy & Security, Accessibility. Menu items act on Resolve's current page, current timeline
 tab and current selection, so set those first (`resolve.OpenPage`, `project.SetCurrentTimeline`).
 
@@ -15,7 +15,7 @@ shortcut (`keystroke`), and screen coordinates only as a last resort.
 """
 import subprocess
 import time
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 PROCESS = "Resolve"
 
@@ -45,7 +45,7 @@ def menu_items(path: Sequence[str]) -> List[str]:
     """Names of the items in a menu or submenu, e.g. menu_items(["Timeline", "AI Tools"]).
 
     Separators come back as "missing value" and are dropped. Use it to discover exact spellings
-    (Resolve writes "Audio Assistant…" with a real ellipsis). Ran 2026-09-24.
+    (Resolve writes "Audio Assistant…" with a real ellipsis).
     """
     if len(path) == 1:
         ref = f'menu 1 of menu bar item "{path[0]}" of menu bar 1'
@@ -65,7 +65,7 @@ def menu(path: Sequence[str], require_enabled: bool = True) -> bool:
     """Click a menu item by its path, e.g. menu(["File", "Close Timeline"]).
 
     With `require_enabled` it checks first and returns False instead of clicking a disabled item (a click
-    on a disabled item can hang System Events). Works while the screen is locked. Ran 2026-09-24.
+    on a disabled item can hang System Events). Works while the screen is locked.
     """
     if require_enabled and not menu_enabled(path):
         return False
@@ -101,7 +101,7 @@ def deselect_all() -> bool:
 def select_clips_by_color(color: str) -> bool:
     """Timeline > Select Clips > By Clip Color > color, on the current timeline. Selects video and audio
     items. Pair it with `TimelineItem.SetClipColor` on a spare color to select any set of items from a
-    script (there is no API selection call). Ran 2026-09-24."""
+    script (there is no API selection call)."""
     deselect_all()
     time.sleep(0.2)
     ok = menu(["Timeline", "Select Clips", "By Clip Color", color])
@@ -111,7 +111,7 @@ def select_clips_by_color(color: str) -> bool:
 
 def switch_multicam_angle(angle: int) -> bool:
     """Clip > Multicam Switch > Switch to Angle N on the selected multicam items. Edit page only: the
-    item is disabled on the Deliver and Color pages. Ran 2026-09-24."""
+    item is disabled on the Deliver and Color pages."""
     ok = menu(["Clip", "Multicam Switch", f"Switch to Angle {angle}"])
     time.sleep(0.6)
     return ok
@@ -119,26 +119,25 @@ def switch_multicam_angle(angle: int) -> bool:
 
 def close_current_timeline() -> bool:
     """File > Close Timeline closes the current timeline tab (no API call closes tabs). To close a list
-    of tabs: `project.SetCurrentTimeline(t)` then this, per timeline. Ran 2026-09-24."""
+    of tabs: `project.SetCurrentTimeline(t)` then this, per timeline."""
     return menu(["File", "Close Timeline"])
 
 
 def apply_grade_from_still() -> bool:
     """Color > Apply Grade: applies the selected gallery still to the current clip on the Color page.
-    `timeline.GrabStill()` leaves the new still selected. Ran 2026-09-24."""
+    `timeline.GrabStill()` leaves the new still selected."""
     return menu(["Color", "Apply Grade"])
 
 
-def open_selected_media_pool_clip_in_timeline(shortcut: Optional[Sequence[str]] = ("t", "control")) -> None:
+def open_selected_media_pool_clip_in_timeline(shortcut: Sequence[str] = ("t", "control")) -> None:
     """Open the media pool item selected with `MediaPool.SetSelectedClip` as its own timeline tab, the
     way right-click > Open in Timeline does (for a multicam, compound or Fusion clip).
 
     The Clip menu's Open in Timeline stays disabled for multicam clips, so this focuses the media pool
-    (Active Panel Selection > Media Clips) and sends the Open in Timeline shortcut, Ctrl+T by default in
-    Bruno's keyboard preset; pass the one set in yours. Needs an unlocked screen. The API cannot see the
+    (Active Panel Selection > Media Clips) and sends the Open in Timeline shortcut (`shortcut` is the key
+    followed by its modifiers; match your keyboard preset). Needs an unlocked screen. The API cannot see the
     opened timeline: `project.GetCurrentTimeline()` still returns the previous one, so continue with menu
-    actions (switch_page, apply_grade_from_still) and verify by rendering the parent timeline. Ran
-    2026-09-24.
+    actions (switch_page, apply_grade_from_still) and verify by rendering the parent timeline.
     """
     focus_panel("Media Clips")
     time.sleep(0.3)
@@ -152,8 +151,7 @@ def run_audio_assistant(button: str = "Auto Mix", poll: float = 5.0, timeout: fl
 
     The dialog's delivery standard keeps its last value (YouTube by default); set it once by hand if you
     need another. Returns True when the dialog closed before `timeout`. It classifies every clip, mixes
-    dialogue, music and effects, then masters; it changes clip volumes and adds track FX. Ran 2026-09-24
-    on a 7-minute timeline in under a minute.
+    dialogue, music and effects, then masters; it changes clip volumes and adds track FX.
     """
     activate()
     if not menu(["Timeline", "AI Tools", "Audio Assistant…"]):
