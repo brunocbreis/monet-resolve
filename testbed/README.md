@@ -38,6 +38,5 @@ The media and the project are built once and kept locally (`testbed/media`, `tes
 ## Open items
 
 - `set_angles` (`--ui`): the menu reports Clip > Multicam Switch disabled with a multicam item selected, and the click changes nothing.
-- `richtext`: needs an Edit-page Text title typed by hand once in the baseline; a scripted title stores no text.
 - `grade_all_clips` and `set_input_color_space` need a DRX and a color-managed project.
 - Comparing whole "after" timelines against approved DRT exports ("golden files"): exports are stable once IDs are normalized, except timelines holding a Fusion composition.

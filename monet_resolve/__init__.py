@@ -29,6 +29,5 @@ from .transitions import build_push, add_push_transition
 from .clips import (append_exact, continue_clip, merge_through_edits, shift_markers, ripple_insert, items_in_range,
                     place_still)
 from .multicam import angle_numbers, multicam_frame, place_multicam, set_angles, swap_to_multicam
-from .richtext import generators_in_drp, replace_text, title_drt, make_template_drt, import_title_as_clip
 
 __version__ = "0.2.0"

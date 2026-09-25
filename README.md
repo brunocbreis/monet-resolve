@@ -6,7 +6,7 @@ Resolve's API has no trim, move or split, no duration setter for titles, no trac
 
 ## Install
 
-    pip install -e .                # add [richtext] for Text title copying, [qc] for the cut checker
+    pip install -e .                # add [qc] for the cut checker
 
 Resolve must be running with external scripting allowed (Preferences > System > General). The package loads `DaVinciResolveScript` from the standard macOS install; set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to use another path.
 
@@ -41,7 +41,6 @@ Or run a script with `resolve`, `project` and `mr` pre-bound; its `result` varia
 | `assembly` | build cuts from lists or synced recordings, close and open gaps, no-ripple inserts, nesting |
 | `clips` | exact appends, continue a clip, merge through-edits, ripple insert with markers, long stills |
 | `titles` | exact-length Text+ and Fusion inserts, styling, retrimming, a vignette layer |
-| `richtext` | copy Edit-page Text titles between projects with new words |
 | `transitions` | Fusion push transitions with direction and ease set in code |
 | `audio` | external sync, channel mapping, crossfades, music cues |
 | `transcription` | Resolve speech-to-text for clips and timeline ranges |

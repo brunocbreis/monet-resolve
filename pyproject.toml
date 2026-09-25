@@ -8,7 +8,6 @@ license = { text = "MIT" }
 authors = [{ name = "Bruno Reis" }]
 
 [project.optional-dependencies]
-richtext = ["zstandard"]
 qc = ["numpy"]
 
 [build-system]

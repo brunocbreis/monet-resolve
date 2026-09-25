@@ -23,11 +23,11 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 
 | Status | Count |
 |---|---|
-| `[x] SOLVED` | 46 |
+| `[x] SOLVED` | 45 |
 | `[~] WORKAROUND` | 33 |
 | `[?] UNTESTED` | 46 |
 | `[ ] OPEN` | 1 |
-| `[UI] UI-ONLY` | 38 |
+| `[UI] UI-ONLY` | 39 |
 | `[!] QUIRK` | 60 |
 
 Three facts shape most routes below. The `run_script` sandbox has no filesystem, but Resolve reads and writes paths on the Mac, so anything file-based (DRX, .comp, LUT, stills, renders, presets) works once the assistant writes the file with Bash and passes the absolute path. Frame references are mixed: `SetMarkInOut` and `AddMarker` take frames relative to the timeline start; `recordFrame`, `SetCurrentTimecode`, render `MarkIn`/`MarkOut`, `GetStart`/`GetEnd` are absolute. Nothing moves, trims, or splits an existing timeline item; every change to an item's position or extent is "delete it, re-append the source range at the new record frame", which keeps the media pool link but loses whatever lived on the item unless restored (comps via `ExportFusionComp`/`ImportFusionComp`, grades via `CopyGrades`, speed via `SetSpeed`, keyframes lost).
@@ -134,7 +134,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ### Titles and Fusion
 
-- [x] SOLVED Copy a Text title (Edit page "Text", stored as "Rich") from another project with new words - export the project to .drp without loading it, take the `Sm2TiGenerator` element, rewrite its text runs, import through a DRT, wrap in a Fusion clip to append anywhere. `richtext.py`; byte-identical to the hand-built titles that rendered right (2026-09-24).
+- [UI] UI-ONLY Copy an Edit-page Text title between projects with new words - no call reads or sets a Text title's content or style. Scripted titles use Fusion Text+ (`titles`), which the API fully controls.
 
 - [x] SOLVED Insert a Text+ at a frame with an exact length on a track - lock the other tracks, `SetMarkInOut(start, end - 1)` relative, `SetCurrentTimecode(absoluteTC)`, `InsertFusionTitleIntoTimeline('Text+')`, `ClearMarkInOut`. `text_placeholders.py`; `title_fitted_to_clip.py` (not yet run as a whole file) fits one to a clip found by name.
 - [x] SOLVED Set the text, font, style, size, and color of a Text+ - no Inspector call; `resolve.OpenPage('fusion')`, `comp = item.GetFusionCompByIndex(1)` (or `AddFusionComp()` when the count is 0), find the tool with `comp.FindToolByID('TextPlus')` or by `tool.ID`, `tp.SetInput('StyledText', ...)`, `'Font'` (`'Inter 28pt'`), `'Style'`, `'Size'`, `'Red1'/'Green1'/'Blue1'`, then `OpenPage('edit')`. `text_placeholders.py` (0e05d2ae 09:07:14 failed from the Edit page, 09:07:36 fixed).
@@ -297,7 +297,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [!] QUIRK "Cyan" is a marker color, not a clip color - `SetClipColor('Cyan')` leaves the item uncolored. Clip colors: Orange, Apricot, Yellow, Lime, Olive, Green, Teal, Navy, Blue, Purple, Violet, Pink, Tan, Beige, Brown, Chocolate.
 - [!] QUIRK A rippling title insert moves markers too - `InsertFusionTitleIntoTimeline` with every track unlocked shifts the timeline markers after the insert along with the clips (`clips.ripple_insert` relies on it).
 - [!] QUIRK A ripple delete trims items that span the deleted range on unlocked tracks - closing a gap with a long clip running across it on an unlocked track cuts that range out of the clip. Leave the track out (`close_gap_ripple(tracks=...)`).
-- [!] QUIRK A new Edit-page Text title stores no text - its `EffectFiltersBA` stays empty in a DRT until the title is edited in the UI, so `richtext` needs a title typed by hand once.
+- [!] QUIRK A new Edit-page Text title stores no text - its `EffectFiltersBA` stays empty in a DRT until the title is edited in the UI.
 - [!] QUIRK The menu bar reports some items disabled while they work in the UI - Clip > Enable/Disable Clip and Clip > Multicam Switch read disabled to Accessibility with a clip selected.
 - [!] QUIRK Probe timelines and "Fusion Clip" pool items pile up - `CreateFusionClip` leaves a "Fusion Clip N" item in the current bin; probe timelines stay in the timelines bin. `cleanup_scratch.py` (0e05d2ae 09:11:44).
 - [!] QUIRK Full-clip transcription collapses repeated takes - `GetTranscription()` on the whole camera clip merges attempts and drops short clauses; word timecodes are at the clip's frame rate (25), the timeline is 24. Short WAV windows per take fix both. `transcribe_clip.py` (0e05d2ae 09:43:17).
