@@ -26,13 +26,16 @@ def _copy_attrs(src_snapshot: Dict, n) -> None:
         n.SetClipEnabled(False)
     if src_snapshot.get("color"):
         n.SetClipColor(src_snapshot["color"])
+    if any((src_snapshot.get("fades") or {}).values()):
+        n.SetFades(src_snapshot["fades"])
 
 
 def snapshot(item, kind: str) -> Dict:
     """Everything `continue_clip`/`merge_through_edits` restore on a re-appended item."""
     first, end = source_frames(item)
     snap = {"clip": item.GetMediaPoolItem(), "source_start": first, "source_end": end,
-            "enabled": item.GetClipEnabled(), "color": item.GetClipColor(), "name": item.GetName()}
+            "enabled": item.GetClipEnabled(), "color": item.GetClipColor(), "name": item.GetName(),
+            "fades": {k: round(v) for k, v in (item.GetFades() or {}).items()}}
     if kind == "video":
         snap["props"] = {k: item.GetProperty(k) for k in VIDEO_PROPS}
     else:
@@ -43,7 +46,8 @@ def snapshot(item, kind: str) -> Dict:
 
 def continue_clip(resolve, project, timeline, item, frames: int, record: Optional[int] = None):
     """Append the next `frames` of `item`'s source right after it (or at `record`), on the same track,
-    with its Inspector properties, audio mapping, volume, enabled state and color. The join is a
+    with its Inspector properties, audio mapping, volume, enabled state and color. A fade-out moves from
+    `item` to the new piece, capped at the new piece's length; a fade-in stays on `item`. The join is a
     through-edit: same source, no jump. Use it after `ripple_insert` to fill the opened space, one call
     per track, so a performance or a sentence runs longer in sync on every track. Multicam items come
     back on the multicam's first angle. Saves. Returns the new item or None."""
@@ -54,7 +58,11 @@ def continue_clip(resolve, project, timeline, item, frames: int, record: Optiona
     n = append_exact(project.GetMediaPool(), timeline, snap["clip"], tr, at, frames, snap["source_end"],
                      media_type=1 if kind == "video" else 2)
     if n:
+        fades = snap.pop("fades")
         _copy_attrs(snap, n)
+        if fades.get("FadeOut"):
+            n.SetFades({"FadeIn": 0, "FadeOut": min(fades["FadeOut"], n.GetDuration())})
+            item.SetFades({"FadeIn": fades.get("FadeIn", 0), "FadeOut": 0})
     save(resolve)
     return n
 
@@ -69,7 +77,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
     where the first ends. Exactly: a one or two frame tolerance also swallows real edits between two
     takes and slides the second one out of sync. Merged items keep their name when it starts with
     `keep_names_prefix` (others, such as multicam angle names, come from the source). Multicam merges come
-    back on the first angle. Saves.
+    back on the first angle. The merged item gets the first piece's fade-in and the last piece's fade-out. Saves.
     Returns [{"kind", "track", "start", "end", "pieces", "ok"}].
     """
     mp = project.GetMediaPool()
@@ -92,6 +100,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
             f = pieces[0]
             a, b = f.GetStart() - s, pieces[-1].GetEnd() - s
             snap = snapshot(f, kind)
+            snap["fades"]["FadeOut"] = round((pieces[-1].GetFades() or {}).get("FadeOut", 0))
             timeline.DeleteClips(pieces, False)
             n = append_exact(mp, timeline, snap["clip"], tr, a, b - a, snap["source_start"], media_type=1 if kind == "video" else 2)
             if n:
