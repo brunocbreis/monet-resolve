@@ -23,21 +23,21 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 
 | Status | Count |
 |---|---|
-| `[x] SOLVED` | 36 |
+| `[x] SOLVED` | 39 |
 | `[~] WORKAROUND` | 38 |
-| `[?] UNTESTED` | 46 |
+| `[?] UNTESTED` | 44 |
 | `[ ] OPEN` | 1 |
 | `[UI] UI-ONLY` | 42 |
-| `[!] QUIRK` | 60 |
+| `[!] QUIRK` | 62 |
 
-Three facts shape most routes below. The `run_script` sandbox has no filesystem, but Resolve reads and writes paths on the Mac, so anything file-based (DRX, .comp, LUT, stills, renders, presets) works once the assistant writes the file with Bash and passes the absolute path. Frame references are mixed: `SetMarkInOut` and `AddMarker` take frames relative to the timeline start; `recordFrame`, `SetCurrentTimecode`, render `MarkIn`/`MarkOut`, `GetStart`/`GetEnd` are absolute. Nothing moves, trims, or splits an existing timeline item; every change to an item's position or extent is "delete it, re-append the source range at the new record frame", which keeps the media pool link but loses whatever lived on the item unless restored (comps via `ExportFusionComp`/`ImportFusionComp`, grades via `CopyGrades`, speed via `SetSpeed`, keyframes lost).
+Three facts shape most routes below. The `run_script` sandbox has no filesystem, but Resolve reads and writes paths on the Mac, so anything file-based (DRX, .comp, LUT, stills, renders, presets) works once the assistant writes the file with Bash and passes the absolute path. Frame references are mixed: `SetMarkInOut` and `AddMarker` take frames relative to the timeline start; `recordFrame`, `SetCurrentTimecode`, render `MarkIn`/`MarkOut`, `GetStart`/`GetEnd` are absolute. No call moves, trims, or splits an existing timeline item. Splits and trims come from Resolve's own editing: a rippling 1-frame title insert cuts the clips under it (`clips.split_at`), and deleting a piece trims, so the clip keeps everything on it. Moving and extending are still "delete it, re-append the source range at the new record frame", which keeps the media pool link but loses whatever lived on the item unless restored (comps via `ExportFusionComp`/`ImportFusionComp`, grades via `CopyGrades`, speed via `SetSpeed`, keyframes lost).
 
 ## Checklist
 
 ### Project and timelines
 
 - [x] SOLVED Find a timeline by name - no lookup call; iterate `GetTimelineByIndex(1..GetTimelineCount())` and compare `GetName()`. `map_project.py`, `load_project.py`.
-- [x] SOLVED Make inserts land on the track I want (destination toggle) - no call sets the toggle; lock every other video track and all audio tracks with `SetTrackLock` before `Insert*IntoTimeline`, unlock after. `titles.title_fitted_to_clip`; `insert_fusion_comp_at.py` also probes the toggle with a throwaway insert at the tail (0e05d2ae 09:07:54).
+- [x] SOLVED Make inserts land on the track I want (destination toggle) - no call sets the toggle; refresh the timeline first (`refresh_timeline`: switch to another timeline and back), then lock every other video track and all audio tracks with `SetTrackLock`, then `Insert*IntoTimeline`, unlock after. Locks set without the refresh are ignored: the insert goes to the destination-toggle track and returns None when that track is locked; a page switch does not count as a refresh. `titles.title_fitted_to_clip`; `insert_fusion_comp_at.py` also probes the toggle with a throwaway insert at the tail (0e05d2ae 09:07:54).
 - [x] SOLVED Protect the cut before a destructive step - no undo from a script; `backup_timeline.py` duplicates the timeline into the backups bin and `map_project.py` snapshots the layout first; `CloseProject` without saving discards everything since the last save.
 - [x] SOLVED Get a timeline with a ready track layout - `CreateEmptyTimeline` always ships a stereo A1; `DuplicateTimeline` one that has the layout and empty it (0e05d2ae 09:49:18). `backup_timeline.py` does the duplicate step.
 - [?] UNTESTED Duplicate a project - no in-database copy; `ExportProject(name, path)` to a .drp, then `ImportProject(path, newName)`.
@@ -78,13 +78,14 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 
 ### Trimming
 
-- [~] WORKAROUND Trim the in or out point of a clip - no trim call. Delete and re-append with the new source range; for a head trim also move `recordFrame` by the same amount when the out point must hold; then close the gap with the dummy-clip route or delete the overlapped neighbor range first. Ran on plain clips.
+- [x] SOLVED Trim the in or out point of a clip without losing anything on it - `clips.split_at` at the new edge, then `DeleteClips` the unwanted piece. The kept piece is the original clip, so keyframes, effects, grades and fades stay. The older route below loses them.
+- [~] WORKAROUND Trim by re-appending - no trim call. Delete and re-append with the new source range; for a head trim also move `recordFrame` by the same amount when the out point must hold; then close the gap with the dummy-clip route or delete the overlapped neighbor range first. Ran on plain clips.
 - [~] WORKAROUND Slip a clip (same position and length, different content) - re-append at the same `recordFrame` with `startFrame`/`endFrame` shifted by the slip amount. No script.
-- [~] WORKAROUND Join through an edit (remove a split) - delete both halves, append the union source range. No script.
-- [?] UNTESTED Ripple trim - trim as above, then shift everything to the right with the insert-edit snapshot or close the gap with `close_gap_ripple.py`.
+- [~] WORKAROUND Join through an edit (remove a split) - delete both halves, append the union source range. `clips.merge_through_edits`; it restores properties, fades and the transitions on the outer edges, and loses keyframes and clip effects.
+- [x] SOLVED Ripple trim with some tracks held in place (trim a clip's tail, keep the music running) - lock the tracks to hold, `clips.split_at` at the new edge, then `DeleteClips([title_or_pieces], True)`: everything after moves left by exactly the trimmed length. Or in one insert: a 1-frame title at the edge cuts the clips, and ripple-deleting the title together with the right pieces removes the extra frame with them. A crossfade on the deleted edge goes with the piece; add it back with `AddTransition`.
 - [?] UNTESTED Slide a clip between its neighbors - re-append the clip at the new record frame, then re-append both neighbors with adjusted source ranges.
 - [?] UNTESTED Roll an edit point - re-append both adjoining clips with one longer and the other shorter, same total span.
-- [?] UNTESTED Split a clip at a frame (razor) - delete, re-append as two items with split source ranges, copy `GetProperties` onto both; `CopyGrades` to both before deleting the original; export and import the comp into both halves, but comp animation is clip-relative so the second half's keyframes need an offset inside Fusion. Keyframes on the clip itself are lost.
+- [x] SOLVED Split a clip at a frame (razor), losslessly - no split call. A 1-frame Text+ inserted at the frame is a true insert edit and cuts every clip spanning it on the unlocked tracks; ripple-deleting the title closes the frame. Both halves are Resolve's own pieces: keyframes, effects, grades, comps and speed survive, fades stay on the outer edges. `clips.split_at(tracks=[...])`, which locks the other tracks, borrows a free video track for the title when only audio is cut, and compares the timeline before and after. Tracks with auto-select off are not cut; see Quirks.
 - [?] UNTESTED Trim or extend to the playhead - read `GetCurrentTimecode`, compute frames, apply the trim route.
 - [?] UNTESTED Trim, move, or split a retimed clip - `AppendToTimeline` cannot recreate a retimed clip; after re-append call `SetSpeed({'Percentage': p})` for a constant speed. Speed ramps cannot be recreated.
 
@@ -240,7 +241,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [UI] UI-ONLY Trigger a keyboard command or menu item - keyboard presets load and save (`LoadKeyboardPreset`), nothing presses a key. Bruno presses it.
 - [UI] UI-ONLY Change an individual preference - presets only (`SaveUserPreferencesPreset`, `LoadUserPreferencesPreset`). Bruno opens Preferences.
 - [UI] UI-ONLY Redo and history - no call.
-- [UI] UI-ONLY Auto-select, snapping, linked selection, timeline view options - no call. Locks stand in for the destination toggle (see Project and timelines).
+- [UI] UI-ONLY Auto-select, snapping, linked selection, timeline view options - no call to read or set any of them (Timeline > Auto Select in the menu bar toggles each track). Locks stand in for the destination toggle (see Project and timelines).
 - [UI] UI-ONLY Dialog boxes Resolve pops up (media offline, delete confirmation) - no dismiss call; scripted calls avoid them. If one appears Bruno clicks it.
 
 ### Export and import
@@ -283,7 +284,9 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [!] QUIRK `DeleteTrack` refuses the only audio track and any track with items - a loop calling `DeleteTrack` until `GetTrackCount('audio')` was 0 failed the build right after; add the replacement tracks first and delete items before the track (0e05d2ae 09:46:15, 09:47).
 - [!] QUIRK Deleting V1 items leaves their linked audio on A1/A2 - delete the audio items explicitly before `DeleteTrack` (0e05d2ae 09:35:53, `audio_left` check).
 - [!] QUIRK `SetName` fails silently on ":" and "/" - use " - " and " + "; "·" is fine. Fusion tool names must also be valid Lua identifiers (no spaces, no leading digit) before expressions reference them (0e05d2ae 09:10:08, 09:10:34).
-- [!] QUIRK Title and comp inserts land on the destination-toggle track and ripple it - lock V1 and every audio track first; probe with a throwaway insert at the tail when the target track is unknown (0e05d2ae 09:07:54).
+- [!] QUIRK Title and comp inserts land on the destination-toggle track and ripple it - unless the timeline was refreshed (switch to another timeline and back) and the locks set after that: then they land on the one unlocked video track. Probe with a throwaway insert at the tail when the target track is unknown.
+- [!] QUIRK Auto-select decides what an insert or ripple delete touches, silently - a track with auto-select off neither moves nor gets cut by a rippling insert, and nothing reports it; its clips simply stay whole. The API cannot read or set it. `clips.ripple_insert` and `clips.split_at` compare the spanning clips before and after and return them under "unsplit". A title insert still lands on a track with auto-select off.
+- [!] QUIRK A deleted clip takes its edge transitions with it - ripple-deleting the right half of a clip deletes the crossfade at its old out point, and deleting pieces to re-append them deletes the crossfades on their edges. Read them first and `AddTransition` them back.
 - [!] QUIRK `GetItemListInTrack` returns `None` for an empty track - every script uses `or []` (0e05d2ae 09:47, 09:47:24 onward).
 - [!] QUIRK `AppendToTimeline` can return a list containing `None` - `if not items` passes and `items[0].SetName` raises; guard with `it = items[0] if items else None; if not it: ...` (0e05d2ae 09:35:53, 09:36:08, 09:36:30).
 - [!] QUIRK `GetSourceAudioChannelMapping()` returns `None` on items of a timeline that is not current and on transition items - `SetCurrentTimeline(t)` first and skip `None` (0e05d2ae 09:33:46, 09:33:55, 09:34:04).
@@ -318,4 +321,4 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - The Fusion stub (`fusion_api.pyi`) has no `Tool`, `Input`, or `Output` class; the closest are `Operator`, `PlainInput`, `PlainOutput`. `GetAttrs` and `SetAttrs` appear nowhere in it, yet `tool.SetAttrs({'TOOLS_Name': ...})` and `comp.GetAttrs()['COMPN_RenderEnd']` run fine. When a method is missing from the stub, try it before calling it a gap.
 - The Fusion stub includes Fusion Studio calls that do not apply inside Resolve: `Composition.Render`, `Save`, `SaveAs`, `Close`, `Fusion.QueueComp`, `LoadComp`, `NewComp`. Inside Resolve the comp saves with the project (`resolve.GetProjectManager().SaveProject()`) and renders on the Deliver page. Never call `comp.Close()` on an item's comp.
 - `DaVinciResolveScript.pyi` declares `class Fusion: ...` and `class FusionComp: ...` with no members, so every Fusion call in this document rests on Fusion's own scripting, not on the Resolve stubs.
-- New in 21 and worth a first run: `Timeline.GetSelectedClips()` (21.0.4, read-only selection), `Timeline.GetMediaPoolItem()` (21.0.4, the pool item of a timeline for nesting), `TimelineItem.AddTransition` (only the audio category has run here; simple, fusion, ofx untested), `TimelineItem.SetFades` (the stub says video or audio fader depending on the item type).
+- New in 21 and worth a first run: `Timeline.GetSelectedClips()` (21.0.4, read-only selection), `Timeline.GetMediaPoolItem()` (21.0.4, the pool item of a timeline for nesting), `TimelineItem.AddTransition` (audio and simple categories have run; ofx untested), `TimelineItem.GetFades`/`SetFades` (ran on audio items: frame counts, read back exactly; a fade longer than the clip is refused).

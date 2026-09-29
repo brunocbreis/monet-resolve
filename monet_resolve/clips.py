@@ -7,7 +7,7 @@ a 25p or 30p source into a 24 fps timeline can land one source frame early. `app
 neighboring start frames until the item's source start (`source_frames`) equals the one asked for.
 """
 import json
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ._util import VIDEO_PROPS, append_exact, items, save, source_frames  # noqa: F401 (append_exact lives in _util)
 from .timelines import refresh_timeline
@@ -77,8 +77,11 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
     where the first ends. Exactly: a one or two frame tolerance also swallows real edits between two
     takes and slides the second one out of sync. Merged items keep their name when it starts with
     `keep_names_prefix` (others, such as multicam angle names, come from the source). Multicam merges come
-    back on the first angle. The merged item gets the first piece's fade-in and the last piece's fade-out. Saves.
-    Returns [{"kind", "track", "start", "end", "pieces", "ok"}].
+    back on the first angle. The merged item gets the first piece's fade-in and the last piece's fade-out.
+    Deleting the pieces deletes the transitions on their outer edges (a crossfade into the next clip); they
+    are read first and added back with `AddTransition` (same name, duration and alignment; category "audio"
+    on audio tracks, "simple" on video). Saves.
+    Returns [{"kind", "track", "start", "end", "pieces", "ok", "transitions": added, "lost": [names not re-added]}].
     """
     mp = project.GetMediaPool()
     s = timeline.GetStartFrame()
@@ -101,14 +104,34 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
             a, b = f.GetStart() - s, pieces[-1].GetEnd() - s
             snap = snapshot(f, kind)
             snap["fades"]["FadeOut"] = round((pieces[-1].GetFades() or {}).get("FadeOut", 0))
+            edges = _edge_transitions(timeline, kind, tr, a, b)
             timeline.DeleteClips(pieces, False)
             n = append_exact(mp, timeline, snap["clip"], tr, a, b - a, snap["source_start"], media_type=1 if kind == "video" else 2)
+            added = []
             if n:
                 _copy_attrs(snap, n)
                 if snap["name"].startswith(keep_names_prefix):
                     n.SetName(snap["name"])
-            out.append({"kind": kind, "track": tr, "start": a, "end": b, "pieces": len(pieces), "ok": bool(n)})
+                added = [opts for opts in edges if n.AddTransition(opts)]
+            out.append({"kind": kind, "track": tr, "start": a, "end": b, "pieces": len(pieces), "ok": bool(n),
+                        "transitions": len(added), "lost": [o["type"] for o in edges if o not in added]})
     save(resolve)
+    return out
+
+
+def _edge_transitions(timeline, kind: str, tr: int, a: int, b: int) -> List[Dict]:
+    """`AddTransition` options for the transitions touching the edges `a` and `b` (relative) on one track."""
+    s = timeline.GetStartFrame()
+    out = []
+    for x in items(timeline, kind, tr):
+        if x.GetType() != "transition":
+            continue
+        ts, te = x.GetStart() - s, x.GetEnd() - s
+        for edge, position in ((a, "start"), (b, "end")):
+            if ts <= edge <= te and ts < te:
+                out.append({"type": x.GetName(), "category": "audio" if kind == "audio" else "simple", "position": position,
+                            "alignment": "center" if ts < edge < te else ("left" if te == edge else "right"),
+                            "duration": te - ts})
     return out
 
 
@@ -135,7 +158,12 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
     them afterwards (`continue_clip` fills the space with the same take). Markers after `at` move with the
     clips; grades and comps stay on the moved items. Titles need a loaded timeline: pass `other`
-    to refresh first. Saves. Returns {"inserted_on": (track type, index), "end_before", "end_after"}.
+    to refresh first.
+
+    Only tracks with auto-select on take part: a track with it off (a UI-only toggle the API cannot read or
+    set) neither moves nor splits. The clips spanning `at` are read before the insert and checked after it;
+    any that did not split come back under "unsplit" with an "error". Saves.
+    Returns {"inserted_on": (track type, index), "end_before", "end_after", "unsplit": [(kind, index, name)]}.
     """
     project.SetCurrentTimeline(timeline)
     if other is not None:
@@ -143,16 +171,109 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     resolve.OpenPage("edit")
     s = timeline.GetStartFrame()
     end_before = timeline.GetEndFrame() - s
-    for i in range(1, timeline.GetTrackCount("video") + 1):
-        timeline.SetTrackLock("video", i, False)
-    for i in range(1, timeline.GetTrackCount("audio") + 1):
-        timeline.SetTrackLock("audio", i, False)
+    every = _every_track(timeline)
+    spanning = _spanning(timeline, at, every)
+    for t in every:
+        timeline.SetTrackLock(*t, False)
     it = insert_fusion_title(timeline, at, frames, fps)
     where = it.GetTrackTypeAndIndex() if it else None
     if it:
         timeline.DeleteClips([it], False)
     save(resolve)
-    return {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s}
+    out = {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s,
+           "unsplit": _unsplit(timeline, at, frames, spanning)}
+    if not it:
+        out["error"] = "the title insert failed; pass `other` to refresh the timeline first"
+    elif out["unsplit"]:
+        out["error"] = "clips spanning the insert did not split; turn on auto-select for their tracks"
+    return out
+
+
+def split_at(resolve, project, timeline, at: int, tracks: Sequence[Tuple[str, int]], other=None,
+             fps: Optional[int] = None) -> Dict:
+    """Cut every clip that spans `at` (relative) on `tracks` into two, in place, like the blade tool.
+
+    The API has no split. A 1-frame Text+ inserted at `at` is a true insert edit, and an insert cuts every
+    clip spanning its frame on the tracks it ripples; deleting the title with ripple closes the frame again.
+    Both halves are Resolve's own pieces of the original clip: keyframes, effects, grades, comps and
+    speed survive, which no delete-and-re-append route keeps. Fades stay on the outer edges.
+
+    `tracks` lists the tracks to cut, as ("video" | "audio", index) pairs. Every other track is locked
+    during the edit and gets its lock state back. The title needs a video track: when `tracks` has none,
+    the first video track with nothing spanning `at` is unlocked too. Titles land on the one unlocked video
+    track only after a refresh, so pass `other` (any other timeline); the locks are set after it.
+    Tracks with auto-select off (UI only) are not cut. The timeline is compared before and after: clips on
+    `tracks` that did not split come back under "unsplit", anything else that changed under "changed",
+    either with an "error". Saves.
+    Returns {"split": [(kind, index, left item, right item)], "unsplit": [...], "changed": [...]}.
+    """
+    project.SetCurrentTimeline(timeline)
+    if other is not None:
+        refresh_timeline(project, timeline, other)
+    resolve.OpenPage("edit")
+    s = timeline.GetStartFrame()
+    every = _every_track(timeline)
+    chosen = list(tracks)
+    unknown = [t for t in chosen if t not in every]
+    if not chosen or unknown:
+        return {"error": "no such track" if unknown else "no tracks chosen", "tracks": unknown}
+    spanning = _spanning(timeline, at, chosen)
+    unlocked = list(chosen)
+    if not any(k == "video" for k, _ in chosen):
+        free = [t for t in every if t[0] == "video" and not _spanning(timeline, at, [t])]
+        if not free:
+            return {"error": "no video track is free at the split frame to carry the title"}
+        unlocked.append(free[0])
+
+    def positions():
+        return {(k, i, x.GetName(), x.GetStart() - s, x.GetEnd() - s) for k, i in every for x in items(timeline, k, i)}
+
+    before = positions()
+    locks = {t: timeline.GetIsTrackLocked(*t) for t in every}
+    try:
+        for t in every:
+            timeline.SetTrackLock(*t, t not in unlocked)
+        it = insert_fusion_title(timeline, at, 1, fps)
+        if not it:
+            return {"error": "the title insert failed; pass `other` to refresh the timeline first"}
+        timeline.DeleteClips([it], True)
+    finally:
+        for t, locked in locks.items():
+            timeline.SetTrackLock(*t, locked)
+    save(resolve)
+    unsplit = _unsplit(timeline, at, 0, spanning)
+    cut = {(k, i, name, a, b) for k, i, name, a, b in spanning if (k, i, name) not in unsplit}
+    halves = {(k, i, name, a, at) for k, i, name, a, b in cut} | {(k, i, name, at, b) for k, i, name, a, b in cut}
+    out = {"split": [], "unsplit": unsplit, "changed": sorted((before - cut) ^ (positions() - halves))}
+    for k, i, name, a, b in sorted(cut):
+        pieces = {x.GetStart() - s: x for x in items(timeline, k, i) if x.GetName() == name}
+        out["split"].append((k, i, pieces.get(a), pieces.get(at)))
+    if unsplit or out["changed"]:
+        out["error"] = ("clips on the chosen tracks did not split; turn on auto-select for their tracks" if unsplit
+                        else "items outside the split changed; restore from a backup")
+    return out
+
+
+def _every_track(timeline) -> List[Tuple[str, int]]:
+    return [(k, i) for k in ("video", "audio") for i in range(1, timeline.GetTrackCount(k) + 1)]
+
+
+def _spanning(timeline, at: int, tracks) -> List[Tuple[str, int, str, int, int]]:
+    """(kind, index, name, start, end) of the clips on `tracks` that start before `at` and end after it."""
+    s = timeline.GetStartFrame()
+    return [(k, i, x.GetName(), x.GetStart() - s, x.GetEnd() - s) for k, i in tracks for x in items(timeline, k, i)
+            if x.GetType() != "transition" and x.GetStart() - s < at < x.GetEnd() - s]
+
+
+def _unsplit(timeline, at: int, gap: int, spanning) -> List[Tuple[str, int, str]]:
+    """The `spanning` clips that are not now two pieces: one ending at `at`, one starting at `at + gap`."""
+    s = timeline.GetStartFrame()
+    out = []
+    for k, i, name, a, b in spanning:
+        now = {(x.GetStart() - s, x.GetEnd() - s) for x in items(timeline, k, i) if x.GetName() == name}
+        if not {(a, at), (at + gap, b + gap)} <= now:
+            out.append((k, i, name))
+    return out
 
 
 def items_in_range(timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("audio", 1)), mode: str = "within") -> List:

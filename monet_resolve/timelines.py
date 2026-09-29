@@ -57,7 +57,9 @@ def refresh_timeline(project, timeline, other, pause: float = 1.0) -> None:
     """Switch to `other` and back to `timeline`, sleeping `pause` seconds after each switch.
 
     Workaround: `Insert*IntoTimeline` returns False on a timeline a script just built or emptied, and
-    retries, lock variants, and page switches did not fix it; switching timelines does.
+    retries, lock variants, and page switches did not fix it; switching timelines does. It is also what
+    makes track locks steer an insert: set the locks after this call and the insert lands on the one
+    unlocked video track.
     """
     project.SetCurrentTimeline(other)
     time.sleep(pause)

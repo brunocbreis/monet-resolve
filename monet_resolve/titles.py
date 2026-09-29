@@ -20,8 +20,9 @@ def insert_fusion_title(timeline, start: int, duration: int, fps: Optional[int] 
 
     The workaround for the missing duration setter: `SetMarkInOut(start, start + duration - 1)` (relative
     frames), `SetCurrentTimecode` at the absolute start, `InsertFusionTitleIntoTimeline(template)`,
-    `ClearMarkInOut`. Lock the other tracks first (`track_locks`) so it lands where you want; the
-    Edit page must be open. Returns the TimelineItem, or False/None when the insert failed.
+    `ClearMarkInOut`. To land on a chosen track, refresh the timeline (`refresh_timeline`), then lock the
+    other tracks (`track_locks`), then insert; without the refresh it goes to the destination-toggle track,
+    or fails when that track is locked. The Edit page must be open. Returns the TimelineItem, or False/None when the insert failed.
     """
     return _insert_marked(timeline, start, duration, fps, lambda: timeline.InsertFusionTitleIntoTimeline(template))
 
