@@ -10,7 +10,8 @@ import json
 from typing import Dict, List, Optional, Sequence
 
 from ._util import VIDEO_PROPS, append_exact, items, save, source_frames  # noqa: F401 (append_exact lives in _util)
-from .assembly import insert_gap_ripple
+from .timelines import refresh_timeline
+from .titles import insert_fusion_title
 
 
 def _copy_attrs(src_snapshot: Dict, n) -> None:
@@ -45,7 +46,7 @@ def continue_clip(resolve, project, timeline, item, frames: int, record: Optiona
     with its Inspector properties, audio mapping, volume, enabled state and color. The join is a
     through-edit: same source, no jump. Use it after `ripple_insert` to fill the opened space, one call
     per track, so a performance or a sentence runs longer in sync on every track. Multicam items come
-    back on the multicam's first angle; set it with `multicam.set_angles`. Saves. Returns the new item or None."""
+    back on the multicam's first angle. Saves. Returns the new item or None."""
     kind, tr = item.GetTrackTypeAndIndex()
     snap = snapshot(item, kind)
     s = timeline.GetStartFrame()
@@ -68,7 +69,7 @@ def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks
     where the first ends. Exactly: a one or two frame tolerance also swallows real edits between two
     takes and slides the second one out of sync. Merged items keep their name when it starts with
     `keep_names_prefix` (others, such as multicam angle names, come from the source). Multicam merges come
-    back on the first angle; set it again with `multicam.set_angles`. Saves.
+    back on the first angle. Saves.
     Returns [{"kind", "track", "start", "end", "pieces", "ok"}].
     """
     mp = project.GetMediaPool()
@@ -115,13 +116,34 @@ def shift_markers(timeline, from_frame: int, delta: int) -> int:
     return moved
 
 
-def ripple_insert(resolve, project, timeline, at: int, frames: int) -> Dict:
-    """Open `frames` of space at `at` on every track, moving clips and markers after it. Clips that span
-    `at` are split with an empty stretch between the halves; fill it with `continue_clip`.
-    The insert inside `assembly.insert_gap_ripple` moves the markers along with the clips. Saves."""
-    r = insert_gap_ripple(resolve, project, timeline, at, frames)
+def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, fps: Optional[int] = None) -> Dict:
+    """Open `frames` of empty space at `at` (relative) on every track, moving clips and markers after it later.
+
+    The inverse of `close_gap_ripple`. The API has no insert-gap call, but `InsertFusionTitleIntoTimeline`
+    is a true insert edit: with every video and audio track unlocked it ripples all of them (with the other
+    tracks locked it ripples only its own). So: unlock everything,
+    insert a `frames`-long Text+ at `at` on the destination track, delete it without ripple. Clips that
+    span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
+    them afterwards (`continue_clip` fills the space with the same take). Markers after `at` move with the
+    clips; grades and comps stay on the moved items. Titles need a loaded timeline: pass `other`
+    to refresh first. Saves. Returns {"inserted_on": (track type, index), "end_before", "end_after"}.
+    """
+    project.SetCurrentTimeline(timeline)
+    if other is not None:
+        refresh_timeline(project, timeline, other)
+    resolve.OpenPage("edit")
+    s = timeline.GetStartFrame()
+    end_before = timeline.GetEndFrame() - s
+    for i in range(1, timeline.GetTrackCount("video") + 1):
+        timeline.SetTrackLock("video", i, False)
+    for i in range(1, timeline.GetTrackCount("audio") + 1):
+        timeline.SetTrackLock("audio", i, False)
+    it = insert_fusion_title(timeline, at, frames, fps)
+    where = it.GetTrackTypeAndIndex() if it else None
+    if it:
+        timeline.DeleteClips([it], False)
     save(resolve)
-    return r
+    return {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s}
 
 
 def items_in_range(timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("audio", 1)), mode: str = "within") -> List:

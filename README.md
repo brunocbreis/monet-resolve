@@ -2,7 +2,7 @@
 
 The DaVinci Resolve scripting API plus the functions it is missing. Plain Python functions that take Blackmagic's own objects (Project, Timeline, TimelineItem, MediaPool, MediaPoolItem, Folder) and return plain data.
 
-Resolve's API has no trim, move or split, no duration setter for titles, no track targeting, no gap selection and no multicam angle switch. Each function here closes one of those gaps, and its docstring explains the workaround. `ROADMAP.md` tracks the rest.
+Resolve's API has no trim, move or split, no duration setter for titles, no track targeting and no gap selection. Each function here closes one of those gaps, and its docstring explains the workaround. `ROADMAP.md` tracks the rest.
 
 ## Install
 
@@ -38,18 +38,15 @@ Or run a script with `resolve`, `project` and `mr` pre-bound; its `result` varia
 | --- | --- |
 | `projects`, `timelines` | load and map projects, back up timelines, park the playhead |
 | `media` | find bins and clips, import, repoint files, clean scratch items |
-| `assembly` | build cuts from lists or synced recordings, close and open gaps, no-ripple inserts, nesting |
+| `assembly` | build cuts from synced recordings, close gaps, no-ripple inserts, nesting |
 | `clips` | exact appends, continue a clip, merge through-edits, ripple insert with markers, long stills |
-| `titles` | exact-length Text+ and Fusion inserts, styling, retrimming, a vignette layer |
-| `transitions` | Fusion push transitions with direction and ease set in code |
+| `titles` | exact-length Text+ and Fusion inserts, a title fitted to a clip, retrimming |
 | `audio` | external sync, channel mapping, crossfades, music cues |
 | `transcription` | Resolve speech-to-text for clips and timeline ranges |
-| `edit` | punch-ins and freeze frames |
-| `color` | DRX grades, CDLs, input color space, stills |
+| `edit` | freeze frames |
+| `color` | input color space, stills |
 | `render` | frame and timeline renders |
-| `gfx` | rendered GFX files as nested timelines |
-| `multicam` | swap source clips for a multicam and set angles |
-| `ui` | menu-bar actions the API lacks, through macOS accessibility |
+| `ui` | menu-bar actions the API lacks (close a timeline tab, switch pages, the Audio Assistant), through macOS accessibility |
 | `qc` | editorial checks on a cut plan before building it |
 
 ## Testbed

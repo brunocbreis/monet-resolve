@@ -59,22 +59,6 @@ def verdict(timeline, frame: int, name: str, ok: bool, expected: str, got) -> Di
     return {"name": name, "ok": ok, "expected": expected, "got": got}
 
 
-def colors_at(ctx, timeline, frame: int, points):
-    """RGB at each (x, y) of a one-frame Deliver render (1920x1080 coordinates)."""
-    import subprocess
-    out = tempfile.mkdtemp(prefix="monet-testbed-")
-    mr.render_frame_tiff(ctx["project"], timeline, out, {"f": frame})
-    tif = [os.path.join(out, f) for f in os.listdir(out) if f.lower().endswith((".tif", ".tiff"))][0]
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", tif, "-vf", "scale=1920:1080", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-                         capture_output=True, check=True).stdout
-    return [tuple(raw[(y * 1920 + x) * 3:(y * 1920 + x) * 3 + 3]) for x, y in points]
-
-
-def _is(rgb, hex_color, tol=40):
-    want = bytes.fromhex(hex_color[2:])
-    return all(abs(a - b) <= tol for a, b in zip(rgb, want))
-
-
 def frame_at(ctx, timeline, frame: int):
     """(source ID, source frame) visible at `frame`, read from a one-frame Deliver render."""
     out = tempfile.mkdtemp(prefix="monet-testbed-")
@@ -259,45 +243,6 @@ def append_exact_mixed_rates(ctx):
 
 
 @check
-def place_clips_on_track(ctx):
-    """Screen-recording ranges land on a new V2 at their record frames, named, colored and zoomed, video only."""
-    before, after = pair(ctx, "base · a-roll", "place_clips_on_track")
-    b = snapshot(before)
-    clips = [("REC · first", 96, 300, 540), ("REC · second", 384, 600, 900)]
-    r = mr.place_clips_on_track(ctx["resolve"], ctx["project"], after, _clip(ctx, "screen_60p.mov"), 2, clips,
-                                zoom=1.2, color="Navy", track_name="SCREEN")
-    v2 = [(x.GetName(), x.GetStart() - after.GetStartFrame(), x.GetDuration(), x.GetClipColor(), x.GetProperty("ZoomX"))
-          for x in mr.items(after, "video", 2)]
-    audio_same = [x for x in snapshot(after) if x[0] == "audio"] == [x for x in b if x[0] == "audio"]
-    ok = v2 == [("REC · first", 96, 96, "Navy", 1.2), ("REC · second", 384, 120, "Navy", 1.2)] and audio_same
-    return verdict(after, 96, "place_clips_on_track", ok,
-                   "V2 'SCREEN' holds REC · first at 96 (96 frames) and REC · second at 384 (120 frames), Navy, "
-                   "zoomed 1.2; the audio tracks are unchanged.", {"result": r, "v2": v2})
-
-
-@check
-def place_shots(ctx):
-    """A shot list: a wide shot, a zoomed close-up and a freeze frame, each at its record frame."""
-    before, after = pair(ctx, "base · a-roll", "place_shots")
-    mr.add_tracks_until(after, "video", 2)
-    clip = _clip(ctx, "screen_60p.mov")
-    shots = [{"name": "wide", "record": 0, "clip": clip, "src_in": 0, "src_out": 240},
-             {"name": "close-up", "record": 96, "clip": clip, "src_in": 240, "src_out": 480,
-              "props": {"ZoomX": 2.0, "ZoomY": 2.0, "Pan": 200.0}},
-             {"name": "freeze", "record": 216, "clip": clip, "src_in": 480, "src_out": 660, "freeze": True}]
-    r = mr.place_shots(ctx["resolve"], ctx["project"], after, 2, shots)
-    s = after.GetStartFrame()
-    v2 = {x.GetName(): x for x in mr.items(after, "video", 2)}
-    got = {n: (x.GetStart() - s, x.GetDuration(), x.GetClipColor(), x.GetProperty("ZoomX")) for n, x in v2.items()}
-    frozen = frame_at(ctx, after, 216) == frame_at(ctx, after, 287)
-    ok = (got == {"wide": (0, 96, "Navy", 1.0), "close-up": (96, 96, "Navy", 2.0), "freeze": (216, 72, "Navy", 1.0)}
-          and frozen)
-    return verdict(after, 0, "place_shots", ok,
-                   "V2: 'wide' 0-96, 'close-up' 96-192 at 2x zoom, 'freeze' 216-288 holding SCREEN frame 480. All Navy.",
-                   {"result": r, "v2": got, "freeze_holds": frozen})
-
-
-@check
 def place_still(ctx):
     """A still image placed for 96 frames becomes one 96-frame item (appends alone stop at the still duration)."""
     before, after = pair(ctx, "base · a-roll", "place_still")
@@ -330,43 +275,6 @@ def merge_through_edits(ctx):
     return verdict(after, 384, "merge_through_edits", ok,
                    "A3 is one clip again, 384-504, video and audio, starting on CAM A frame 400.",
                    {"split": split, "result": r, "merged": merged})
-
-
-# ---------------------------------------------------------------- markers and Edit-page attributes
-
-@check
-def beat_markers(ctx):
-    """Every marker is replaced by one per beat, at round(seconds x 24) frames."""
-    before, after = pair(ctx, "base · a-roll", "beat_markers")
-    mr.beat_markers(after, [(0.0, "one", "Blue"), (1.5, "two", "Yellow"), (10.25, "three", "Pink")])
-    got = markers(after)
-    ok = got == {0: "one", 36: "two", 246: "three"}
-    return verdict(after, 1, "beat_markers", ok, "Markers only at 0 'one', 36 'two', 246 'three'.", got)
-
-
-@check
-def punch_in_clips(ctx):
-    """The clips starting at 96 and 384 get zoom 1.3 / tilt -250 and a PUNCH-IN marker; the others stay wide."""
-    before, after = pair(ctx, "base · a-roll", "punch_in_clips")
-    r = mr.punch_in_clips(ctx["resolve"], ctx["project"], after, [(96, "B1"), (384, "A3")])
-    s = after.GetStartFrame()
-    zooms = {x.GetStart() - s: (x.GetProperty("ZoomX"), x.GetProperty("Tilt")) for x in mr.items(after, "video", 1)}
-    want = {f: ((1.3, -250.0) if f in (96, 384) else (1.0, 0.0)) for f in zooms}
-    mk = markers(after)
-    ok = zooms == want and mk.get(96) == "PUNCH-IN 1.3x" and mk.get(384) == "PUNCH-IN 1.3x"
-    return verdict(after, 96, "punch_in_clips", ok, "B1 and A3 are punched in (1.3x, tilted); the rest are wide.",
-                   {"result": r, "zoom_tilt": zooms, "markers": mk})
-
-
-@check
-def alternate_punch_ins(ctx):
-    """Wide and punched-in framing alternate at each touching cut; after the gap the camera starts wide again."""
-    before, after = pair(ctx, "base · a-roll", "alternate_punch_ins")
-    r = mr.alternate_punch_ins(ctx["resolve"], ctx["project"], after)
-    got = [(st, fr) for st, _, fr in r["camera"]]
-    ok = got == [(0, "W"), (96, "P"), (216, "W"), (288, "P"), (384, "W"), (504, "P")]
-    return verdict(after, 96, "alternate_punch_ins", ok,
-                   "A1 wide, B1 punched in, A2 wide, C1 punched in, A3 wide (after the gap), B2 punched in.", r)
 
 
 # ---------------------------------------------------------------- timelines
@@ -420,24 +328,12 @@ def _titles_on(timeline, track):
     return [(x.GetName(), x.GetStart() - s, x.GetDuration()) for x in mr.items(timeline, "video", track)]
 
 
+def _text_tool(item):
+    return [t for t in item.GetFusionCompByIndex(1).GetToolList().values() if t.ID == "TextPlus"][0]
+
+
 def _other(ctx):
     return mr.find_timeline(ctx["project"], "base · layered")
-
-
-@check
-def text_placeholders(ctx):
-    """Two Text+ placeholders land on V2 over exact spans; V1 and the audio stay as they were."""
-    before, after = pair(ctx, "base · a-roll", "text_placeholders")
-    mr.add_tracks_until(after, "video", 2)
-    b = snapshot(before)
-    r = mr.text_placeholders(ctx["resolve"], ctx["project"], after, 2, [(96, 216, "B1 cover"), (384, 504, "A3 cover")],
-                             other=_other(ctx))
-    got = _titles_on(after, 2)
-    ok = got == [("BROLL · B1 cover", 96, 120), ("BROLL · A3 cover", 384, 120)] and r["texts_set"] == 2 \
-        and [x for x in snapshot(after) if x[1] == 1 or x[0] == "audio"] == b
-    return verdict(after, 96, "text_placeholders", ok,
-                   "V2 holds two yellow B-ROLL placeholder titles, 96-216 and 384-504, reading 'B1 cover' and 'A3 cover'.",
-                   {"result": r, "v2": got})
 
 
 @check
@@ -445,9 +341,10 @@ def title_fitted_to_clip(ctx):
     """A Text+ title on V2 spans exactly the clip 'C1 · reaction' (288-336)."""
     before, after = pair(ctx, "base · a-roll", "title_fitted_to_clip")
     mr.add_tracks_until(after, "video", 2)
-    r = mr.title_fitted_to_clip(ctx["resolve"], ctx["project"], after, 1, "C1 · reaction", 2, "Reaction", other=_other(ctx))
-    ok = r["fits"] and _titles_on(after, 2) == [("TITLE - Reaction", 288, 48)]
-    return verdict(after, 288, "title_fitted_to_clip", ok, "V2 holds a white 'Reaction' title from 288 to 336, exactly over C1.", r)
+    r = mr.title_fitted_to_clip(ctx["resolve"], ctx["project"], after, 1, "C1 · reaction", 2, text="Reaction",
+                                name="TITLE · Reaction", other=_other(ctx))
+    ok = r["fits"] and _titles_on(after, 2) == [("TITLE · Reaction", 288, 48)]
+    return verdict(after, 288, "title_fitted_to_clip", ok, "V2 holds a 'Reaction' title from 288 to 336, exactly over C1.", r)
 
 
 @check
@@ -455,39 +352,23 @@ def retrim_title(ctx):
     """The first of two titles shrinks from 120 to 60 frames; the second stays at 384."""
     before, after = pair(ctx, "base · a-roll", "retrim_title")
     mr.add_tracks_until(after, "video", 2)
-    mr.text_placeholders(ctx["resolve"], ctx["project"], after, 2, [(96, 216, "first"), (384, 504, "second")], other=_other(ctx))
+    mr.refresh_timeline(ctx["project"], after, _other(ctx))
+    ctx["resolve"].OpenPage("edit")
+    with mr.track_locks(after, 2):
+        for start, dur, name in ((96, 120, "first"), (384, 120, "second")):
+            mr.insert_fusion_title(after, start, dur).SetName(name)
+    ctx["resolve"].OpenPage("fusion")
+    for x in mr.items(after, "video", 2):
+        _text_tool(x).SetInput("StyledText", f"{x.GetName()} words")
+    ctx["resolve"].OpenPage("edit")
     r = mr.retrim_title(ctx["resolve"], ctx["project"], after, 2, 96, 60, other=_other(ctx))
     got = _titles_on(after, 2)
-    ok = got == [("BROLL · first", 96, 60), ("BROLL · second", 384, 120)] and not r["misplaced"]
-    return verdict(after, 96, "retrim_title", ok, "Title 'first' now runs 96-156; 'second' still runs 384-504.",
-                   {"result": r, "v2": got})
-
-
-@check
-def fusion_vignette_layer(ctx):
-    """A vignette composition on a new top track spans the whole of V1 (0-600) at 70% opacity."""
-    before, after = pair(ctx, "base · a-roll", "fusion_vignette_layer")
-    b = snapshot(before)
-    r = mr.fusion_vignette_layer(ctx["resolve"], ctx["project"], after)
-    ok = "error" not in r and r["item"][1:] == (0, 600) and r["opacity"] == 70.0 \
-        and [x for x in snapshot(after) if not (x[0] == "video" and x[1] == r["track"])] == b
-    return verdict(after, 0, "fusion_vignette_layer", ok, "Top track 'GFX' holds a vignette from 0 to 600; the picture darkens at the edges.", r)
-
-
-@check
-def add_push_transition(ctx):
-    """A 16-frame Fusion push sits centered on the A1/B1 cut at 96; the clips keep their positions."""
-    before, after = pair(ctx, "base · a-roll", "add_push_transition")
-    s = after.GetStartFrame()
-    a1 = [x for x in mr.items(after, "video", 1) if x.GetStart() - s == 0][0]
-    r = mr.add_push_transition(ctx["resolve"], ctx["project"], after, a1, duration=16)
-    clips = [x[:5] for x in snapshot(after) if x[0] == "video" and x[2] != "Cross Dissolve"]
-    left, right = colors_at(ctx, after, 96, [(100, 300), (1800, 300)])
-    ok = r.get("transition", (None,))[1:] == (88, 16) and clips == [x[:5] for x in snapshot(before) if x[0] == "video"] \
-        and _is(left, "0x1F4E79") and _is(right, "0x2E7D32")
-    return verdict(after, 88, "add_push_transition", ok,
-                   "Across the cut at 96, B1 (green) pushes A1 (blue) out to the left over 16 frames (88-104). "
-                   "Mid-way, blue on the left and green on the right.", {"result": r, "left_right_rgb": (left, right)})
+    ctx["resolve"].OpenPage("fusion")
+    texts = [_text_tool(x).GetInput("StyledText") for x in mr.items(after, "video", 2)]
+    ctx["resolve"].OpenPage("edit")
+    ok = got == [("first", 96, 60), ("second", 384, 120)] and not r["misplaced"] and texts == ["first words", "second words"]
+    return verdict(after, 96, "retrim_title", ok, "Title 'first' now runs 96-156; 'second' still runs 384-504; both keep their text.",
+                   {"result": r, "v2": got, "texts": texts})
 
 
 # ---------------------------------------------------------------- audio
@@ -518,7 +399,7 @@ def audio_crossfades(ctx):
                    {"result": r, "fades": [(x.GetStart() - s, x.GetDuration()) for x in fades]})
 
 
-# ---------------------------------------------------------------- nesting and GFX
+# ---------------------------------------------------------------- nesting
 
 def _gfx_timeline(ctx, name, clip_name):
     mp = ctx["mp"]
@@ -545,84 +426,7 @@ def nest_timeline_over_placeholder(ctx):
                    "V4 'NESTED' shows the GFX v1 card from 120 to 216, over the screen recording.", {"result": r, "frame_150": pic})
 
 
-@check
-def swap_gfx_clip(ctx):
-    """The GFX timeline's clip is replaced by GFX v2 for 288 frames; the nesting cut shows v2."""
-    before, after = pair(ctx, "base · layered", "swap_gfx_clip")
-    gfx = _gfx_timeline(ctx, "swap_gfx_clip · gfx", "gfx_v1.mov")
-    ctx["project"].SetCurrentTimeline(after)
-    mr.nest_timeline_over_placeholder(ctx["resolve"], ctx["project"], after, gfx.GetMediaPoolItem(), 4, 120, 2)
-    path = _clip(ctx, "gfx_v2.mov").GetClipProperty("File Path")
-    r = mr.swap_gfx_clip(ctx["resolve"], ctx["project"], path, mr.find_bin(ctx["mp"], "gfx"), gfx, 288)
-    pic = frame_at(ctx, after, 150)
-    ok = r["on_timeline"] == [("gfx_v2.mov", 288)] and pic == (6, 30)
-    return verdict(after, 120, "swap_gfx_clip", ok, "The nested GFX at 120 now shows the purple GFX v2 card.",
-                   {"result": r, "frame_150": pic})
-
-
-@check
-def create_gfx_timeline_from_clip(ctx):
-    """A GFX file becomes its own timeline and lands nested on V4 of the cut at 500 for 72 frames."""
-    before, after = pair(ctx, "base · layered", "create_gfx_timeline_from_clip")
-    name = "create_gfx_timeline_from_clip · gfx"
-    stale = [t for t in mr.list_timelines(ctx["project"]) if t.GetName() == name]
-    if stale:
-        ctx["mp"].DeleteTimelines(stale)
-    path = _clip(ctx, "gfx_v2.mov").GetClipProperty("File Path")
-    r = mr.create_gfx_timeline_from_clip(ctx["resolve"], ctx["project"], path, mr.find_bin(ctx["mp"], "gfx"),
-                                         ctx["checks_bin"], name, after, 4, 500, 72)
-    pic = frame_at(ctx, after, 510)
-    ok = r["track"] == [(name, 500, 72)] and pic == (6, 10)
-    return verdict(after, 500, "create_gfx_timeline_from_clip", ok,
-                   "V4 shows the purple GFX v2 card from 500 to 572, as a nested timeline.", {"result": r, "frame_510": pic})
-
-
-# ---------------------------------------------------------------- multicam
-
-def _swap_angles(ctx, name):
-    before, after = pair(ctx, "base · angles", name)
-    probe = [10, 150, 250, 330]
-    want = [frame_at(ctx, before, f) for f in probe]
-    ctx["project"].SetCurrentTimeline(after)
-    mcam = mr.find_clip(mr.find_bin(ctx["mp"], "multicam"), "mcam · wide+close")
-    sources = {"mc_wide_24p.mov": "mc_wide_24p.mov", "mc_close_25p.mov": "mc_close_25p.mov"}
-    log = mr.swap_to_multicam(ctx["resolve"], ctx["project"], after, mcam, sources, tracks=(1,))
-    return after, probe, want, sources, log
-
-
-@check
-def swap_to_multicam(ctx):
-    """Pieces cut from the raw angle files become multicam items at the same positions, in sync.
-
-    Every new item shows the multicam's first angle (CLOSE, first by name), on the CLOSE frame recorded at the
-    same moment as the original picture: WIDE frame f becomes CLOSE frame round(f x 25 / 24).
-    """
-    after, probe, want, _, log = _swap_angles(ctx, "swap_to_multicam")
-    got = [frame_at(ctx, after, f) for f in probe]
-    expect = [(8, round(w[1] * 25 / 24)) if w and w[0] == 7 else w for w in want]
-    ok = [(r["start"], r["dur"]) for r in log if "item" in r] == [(0, 96), (96, 120), (216, 72), (288, 96)] \
-        and not [r for r in log if "error" in r] and got == expect
-    return verdict(after, 0, "swap_to_multicam", ok,
-                   "Four multicam items at 0, 96, 216, 288, all showing CLOSE in sync with the original pictures "
-                   "(set_angles picks the angles afterward).", {"before": want, "after": got, "expected": expect})
-
-
-@check
-def set_angles(ctx):
-    """After the swap, the menu-bar angle switch brings back WIDE, CLOSE, WIDE, CLOSE on the original frames.
-
-    Drives Resolve's menu bar through Accessibility, so it only runs with `--ui`.
-    """
-    after, probe, want, sources, log = _swap_angles(ctx, "set_angles")
-    nums = mr.angle_numbers(sources.values())
-    switched = mr.set_angles(ctx["resolve"], ctx["project"], after, [(r["item"], nums[r["angle"]]) for r in log if "item" in r])
-    got = [frame_at(ctx, after, f) for f in probe]
-    ok = all(g and w and g[0] == w[0] and abs(g[1] - w[1]) <= 1 for g, w in zip(got, want))
-    return verdict(after, 0, "set_angles", ok, "WIDE, CLOSE, WIDE, CLOSE, each on the frame it showed before the swap.",
-                   {"before": want, "after": got, "switched": switched})
-
-
-UI_CHECKS = {"set_angles"}
+UI_CHECKS: set = set()      # checks that drive Resolve's menu bar; they run only with `--ui`
 
 
 # ---------------------------------------------------------------- audio routing
@@ -659,29 +463,6 @@ def _fresh_timeline_slot(ctx, name):
     stale = [t for t in mr.list_timelines(ctx["project"]) if t.GetName() == name]
     if stale:
         ctx["mp"].DeleteTimelines(stale)
-
-
-@check
-def build_cut_from_list(ctx):
-    """A cut list of three CAM A ranges becomes a timeline: exact lengths, a gap, a disabled b-roll slot, markers."""
-    name = "build_cut_from_list · after"
-    _fresh_timeline_slot(ctx, name)
-    cut = [{"id": "L1", "label": "open", "src_in": 0, "src_out": 48, "section": "ONE", "broll": "", "gap": 0},
-           {"id": "L2", "label": "cover", "src_in": 100, "src_out": 160, "section": "ONE", "broll": "b-roll here", "gap": 12},
-           {"id": "L3", "label": "close", "src_in": 300, "src_out": 372, "section": "TWO", "broll": "", "gap": 0, "jump": True}]
-    r = mr.build_cut_from_list(ctx["resolve"], ctx["project"], name, cut, _clip(ctx, "cam_a_24p.mov"), ctx["checks_bin"])
-    t = mr.find_timeline(ctx["project"], name)
-    s = t.GetStartFrame()
-    v1 = [(x.GetName(), x.GetStart() - s, x.GetDuration(), x.GetClipEnabled()) for x in mr.items(t, "video", 1)]
-    pics = [frame_at(ctx, t, f) for f in (0, 48, 120)]
-    notes = {int(f): m["note"] for f, m in t.GetMarkers().items()}
-    ok = v1 == [("L1 · open", 0, 48, True), ("L2 · cover", 48, 60, False), ("L3 · close", 120, 72, True)] \
-        and markers(t) == {0: "ONE", 120: "TWO"} and notes[120].startswith("JUMP CUT") \
-        and pics == [(1, 0), None, (1, 300)]
-    return verdict(t, 0, "build_cut_from_list", ok,
-                   "L1 0-48, L2 48-108 disabled (orange b-roll slot), 12 empty frames, L3 120-192 from CAM A frame 300; "
-                   "section markers ONE at 0 and TWO at 120, TWO's note flags the jump cut.", {"result": r, "v1": v1, "pictures": pics, "notes": notes,
-                                                                 "markers": markers(t)})
 
 
 @check
@@ -772,4 +553,3 @@ def map_project(ctx):
     ok = r["project"] == "monet-testbed" and [x[0] for x in r["tracks"]["V1 A-ROLL"]] == \
         ["A1 · intro", "B1 · answer", "A2 · follow-up", "C1 · reaction", "A3 · second part", "B2 · closing"]
     return {"name": "map_project", "ok": ok, "expected": "Six a-roll items in order, three markers.", "got": r}
-

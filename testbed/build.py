@@ -9,8 +9,6 @@ Base timelines (24p, 1920x1080), both in `timelines/base`:
   gap and section markers.
 - `base · layered`: the a-roll pieces on V1/A1, a screen recording over part of it on V2, a GFX clip
   on V3 and one long audio clip on A2 that runs across several edits.
-- `base · angles`: WIDE and CLOSE pieces cut from the two raw angle files that make up the multicam
-  clip `mcam · wide+close` (synced by their shared timecode, in the `multicam` bin).
 
 Every piece is listed in PIECES / LAYERS with its record frame, so a check knows what "before" was.
 """
@@ -24,16 +22,9 @@ from . import media
 PROJECT = "monet-testbed"
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
 BINS = {"cam_a_24p.mov": "footage", "cam_b_25p.mov": "footage", "cam_c_30p.mov": "footage", "cam_d_4ch.mov": "footage",
-        "mc_wide_24p.mov": "multicam", "mc_close_25p.mov": "multicam", "ext_mic.wav": "audio",
+        "ext_mic.wav": "audio",
         "screen_60p.mov": "screen", "gfx_v1.mov": "gfx", "gfx_v2.mov": "gfx", "music.wav": "music", "icon.png": "stills"}
-MULTICAM = "mcam · wide+close"
-# `base · angles` on V1/A1: (name, clip file, source in as 24p position, timeline frames, record frame)
-ANGLES = [
-    ("WIDE · one", "mc_wide_24p.mov", 0, 96, 0),
-    ("CLOSE · two", "mc_close_25p.mov", 96, 120, 96),
-    ("WIDE · three", "mc_wide_24p.mov", 216, 72, 216),
-    ("CLOSE · four", "mc_close_25p.mov", 288, 96, 288),
-]
+
 
 # a-roll on V1/A1: (name, clip file, source in, timeline frames, record frame)
 PIECES = [
@@ -77,7 +68,7 @@ def _fresh_project(resolve, fresh: bool):
 def _bins(mp):
     root = mp.GetRootFolder()
     made = {}
-    for name in ("footage", "multicam", "audio", "screen", "gfx", "music", "stills", "timelines"):
+    for name in ("footage", "audio", "screen", "gfx", "music", "stills", "timelines"):
         made[name] = mp.AddSubFolder(root, name)
     for name in ("base", "checks", "gfx", "backups"):
         made["timelines/" + name] = mp.AddSubFolder(made["timelines"], name)
@@ -143,14 +134,6 @@ def build(fresh: bool = False) -> dict:
         for it in _place(mp, layered, clips[fname], src_in, frames, record, track, 1 if kind == "video" else 2):
             it.SetName(label)
             it.SetClipColor(colors[label.split(" ·")[0]])
-    mp.SetCurrentFolder(bins["multicam"])
-    made = mp.CreateMulticamClip([clips["mc_wide_24p.mov"], clips["mc_close_25p.mov"]], {
-        "name": MULTICAM, "startTimecode": "15:00:00:00", "angleSyncMode": resolve.MULTICAM_ANGLE_SYNC_TIMECODE,
-        "angleNameMode": resolve.MULTICAM_ANGLE_NAME_CLIP, "createBinForSourceClips": False})
-    mp.SetCurrentFolder(mp.GetRootFolder())
-    if not made:
-        raise RuntimeError("CreateMulticamClip failed")
-    _a_roll(mp, bins, clips, "base · angles", ANGLES)
     project.SetCurrentTimeline(layered)
     mr.save(resolve)
     return {"project": project.GetName(), "timelines": [t.GetName() for t in mr.list_timelines(project)],

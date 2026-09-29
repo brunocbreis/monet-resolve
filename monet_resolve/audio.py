@@ -20,40 +20,16 @@ def sync_external_audio(resolve, media_pool, video_clip, audio_clip, channel_num
     })
 
 
-DIALOGUE_MONO_CAMERA_STEREO = {"1": {"channel_idx": [3], "mute": False, "type": "mono"},
-                               "2": {"channel_idx": [1, 2], "mute": False, "type": "stereo"}}
-
-
-def set_clip_audio_mapping(clip, mapping: Dict = DIALOGUE_MONO_CAMERA_STEREO) -> Dict:
+def set_clip_audio_mapping(clip, mapping: Dict) -> Dict:
     """Set a media pool clip's `track_mapping` so every later append lands the right channels on the right tracks.
 
-    Default mapping: track 1 = mono external mic on channel 3, track 2 = stereo camera mic on channels 1-2
-    (the timeline's A1 must be a mono track for this to line up). Reads `GetAudioMapping()` as JSON, swaps
-    `track_mapping`, writes it back with `SetAudioMapping`. Items already on a timeline keep their mapping;
-    see `remap_timeline_audio_items`. Returns {"clip_set": bool, "map": the mapping read back}.
+    `mapping` is Resolve's track_mapping JSON as a dict, e.g. {"1": {"channel_idx": [3], "type": "mono"}}
+    for a mono track 1 fed by channel 3. Reads `GetAudioMapping()` as JSON, swaps `track_mapping`, writes it
+    back with `SetAudioMapping`. Items already on a timeline keep their mapping. Returns {"clip_set": bool, "map": the mapping read back}.
     """
     m = json.loads(clip.GetAudioMapping())
     m["track_mapping"] = mapping
     return {"clip_set": clip.SetAudioMapping(json.dumps(m)), "map": json.loads(clip.GetAudioMapping())["track_mapping"]}
-
-
-def remap_timeline_audio_items(project, timeline, mapping: Dict = DIALOGUE_MONO_CAMERA_STEREO, track: int = 1) -> int:
-    """Apply `mapping["1"]` to every audio item on `track` of `timeline` (`SetSourceAudioChannelMapping`).
-
-    Makes the timeline current first: `GetSourceAudioChannelMapping()` returns None on items of a timeline
-    that is not current and on transition items, which are skipped. Returns the count remapped.
-    """
-    project.SetCurrentTimeline(timeline)
-    ok = 0
-    for a in items(timeline, "audio", track):
-        raw = a.GetSourceAudioChannelMapping()
-        if not raw:
-            continue
-        im = json.loads(raw)
-        im["track_mapping"] = {"1": mapping["1"]}
-        if a.SetSourceAudioChannelMapping(json.dumps(im)):
-            ok += 1
-    return ok
 
 
 def audio_crossfades(resolve, project, timeline, track: int = 1, frames: int = 4,
@@ -111,34 +87,3 @@ def place_music(resolve, project, timeline, track: int, music_bin,
         placed.append((it.GetName(), it.GetStart() - s, it.GetEnd() - s, it.GetProperty("AudioVolume"), it.GetFades()))
     save(resolve)
     return {"placed": placed, "cut_end": timeline.GetEndFrame() - s}
-
-
-def resync_item_mappings(project, timeline, tracks: Sequence[int] = ()) -> Dict:
-    """Make timeline audio items that come from a synced external recording use their clip's mapping.
-
-    A camera clip synced to a separate recorder (`sync_external_audio`, a `linked_audio` entry in its
-    mapping) can end up on the timeline mapped to the camera's scratch channel: moving items between
-    tracks or re-appending them keeps an old item mapping. For every item whose media pool clip has a
-    `linked_audio` entry, this sets the item's track_mapping to the clip's with
-    `SetSourceAudioChannelMapping`. Items without `linked_audio` keep their mapping, since a plain clip's
-    pool mapping can be stereo while its dialogue items were set mono per item. Transitions return
-    None for the mapping and are skipped. Returns {"fixed": [(track, start)], "ok": n}.
-    """
-    project.SetCurrentTimeline(timeline)
-    s = timeline.GetStartFrame()
-    out = {"fixed": [], "ok": 0}
-    for tr in (tracks or range(1, timeline.GetTrackCount("audio") + 1)):
-        for x in items(timeline, "audio", tr):
-            m = x.GetMediaPoolItem()
-            cur = x.GetSourceAudioChannelMapping()
-            if not m or not cur:
-                continue
-            want = json.loads(m.GetAudioMapping() or "{}")
-            if not want.get("linked_audio"):
-                continue
-            if json.loads(cur).get("track_mapping") != want.get("track_mapping"):
-                x.SetSourceAudioChannelMapping(json.dumps({"track_mapping": want["track_mapping"]}))
-                out["fixed"].append((tr, x.GetStart() - s))
-            else:
-                out["ok"] += 1
-    return out

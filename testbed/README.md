@@ -30,13 +30,12 @@ The media and the project are built once and kept locally (`testbed/media`, `tes
 | File | Role |
 | --- | --- |
 | `media.py` | Generates the cards, tones, counting voice, external mic, music and still; decodes barcodes |
-| `build.py` | Creates the project, bins, multicam clip and base timelines (`a-roll`, `layered`, `angles`) |
+| `build.py` | Creates the project, bins and base timelines (`a-roll`, `layered`) |
 | `baseline.py` | Freezes, verifies and restores the checked project (a DRT fingerprint per base timeline) |
 | `checks.py` | The checks |
 | `run.py` | Runs checks and writes the report |
 
 ## Open items
 
-- `set_angles` (`--ui`): the menu reports Clip > Multicam Switch disabled with a multicam item selected, and the click changes nothing.
-- `grade_all_clips` and `set_input_color_space` need a DRX and a color-managed project.
+- `set_input_color_space` needs a color-managed project.
 - Comparing whole "after" timelines against approved DRT exports ("golden files"): exports are stable once IDs are normalized, except timelines holding a Fusion composition.

@@ -74,7 +74,7 @@ def import_file_once(media_pool, folder, path: str):
     """Return the clip in `folder` whose 'File Path' is `path`, importing it into `folder` when absent.
 
     Leaves `folder` as the current bin (callers restore the root when they need to). Returns None when
-    the import fails. Shared by swap_gfx_clip and create_gfx_timeline_from_clip.
+    the import fails.
     """
     media_pool.SetCurrentFolder(folder)
     have = [c for c in folder.GetClipList() if c.GetClipProperty("File Path") == path]

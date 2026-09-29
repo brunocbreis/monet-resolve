@@ -28,8 +28,6 @@ VIDEO = [
     ("SCREEN · 60p", "screen_60p.mov", 4, 60, 20, "0x4A4A4A", (530,), "13:00:00:00"),
     ("GFX v1", "gfx_v1.mov", 5, 24, 10, "0x00796B", (), "00:00:00:00"),
     ("GFX v2", "gfx_v2.mov", 6, 24, 12, "0x6A1B9A", (), "00:00:00:00"),
-    ("WIDE · 24p", "mc_wide_24p.mov", 7, 24, 30, "0x37474F", (560, 700), "15:00:00:00"),
-    ("CLOSE · 25p", "mc_close_25p.mov", 8, 25, 30, "0xAD1457", (590, 740), "15:00:00:00"),
     ("CAM D · 4ch", "cam_d_4ch.mov", 9, 24, 20, "0x5D4037", (300, 350, 400, 450), "14:00:00:00"),
 ]
 EXT_MIC_DELAY = 1.5             # seconds the external recording starts after CAM D
