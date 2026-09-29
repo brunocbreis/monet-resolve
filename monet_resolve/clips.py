@@ -1,4 +1,4 @@
-"""Timeline item surgery the API lacks: continue a clip, merge through-edits, ripple-insert with markers,
+"""Timeline item surgery the API lacks: split, extend and join clips, ripple-insert with markers,
 stills longer than 24 frames.
 
 The API has no trim, extend or join. Every one of these is "append the same source range at the right
@@ -31,7 +31,7 @@ def _copy_attrs(src_snapshot: Dict, n) -> None:
 
 
 def snapshot(item, kind: str) -> Dict:
-    """Everything `continue_clip`/`merge_through_edits` restore on a re-appended item."""
+    """Everything `extend_clip`/`join_clips` restore on a re-appended item."""
     first, end = source_frames(item)
     snap = {"clip": item.GetMediaPoolItem(), "source_start": first, "source_end": end,
             "enabled": item.GetClipEnabled(), "color": item.GetClipColor(), "name": item.GetName(),
@@ -44,13 +44,18 @@ def snapshot(item, kind: str) -> Dict:
     return snap
 
 
-def continue_clip(resolve, project, timeline, item, frames: int, record: Optional[int] = None):
-    """Append the next `frames` of `item`'s source right after it (or at `record`), on the same track,
+def extend_clip(resolve, project, timeline, item, frames: int, record: Optional[int] = None, join: bool = False):
+    """Make `item` run `frames` longer: append the next `frames` of its source right after it (or at `record`), on the same track,
     with its Inspector properties, audio mapping, volume, enabled state and color. A fade-out moves from
     `item` to the new piece, capped at the new piece's length; a fade-in stays on `item`. The join is a
     through-edit: same source, no jump. Use it after `ripple_insert` to fill the opened space, one call
     per track, so a performance or a sentence runs longer in sync on every track. Multicam items come
-    back on the multicam's first angle. Saves. Returns the new item or None."""
+    back on the multicam's first angle.
+
+    The result is a through-edit: two items that play as one, with everything on `item` kept. `join=True`
+    makes them one clip with `join_clips`, which re-appends it and loses what the API cannot copy
+    (keyframes, clip effects, grades, comps); the API cannot tell whether a clip has any, so joining is opt-in.
+    Saves. Returns the new item (the joined item with `join`) or None."""
     kind, tr = item.GetTrackTypeAndIndex()
     snap = snapshot(item, kind)
     s = timeline.GetStartFrame()
@@ -63,14 +68,18 @@ def continue_clip(resolve, project, timeline, item, frames: int, record: Optiona
         if fades.get("FadeOut"):
             n.SetFades({"FadeIn": 0, "FadeOut": min(fades["FadeOut"], n.GetDuration())})
             item.SetFades({"FadeIn": fades.get("FadeIn", 0), "FadeOut": 0})
+        if join:
+            a, b = item.GetStart() - s, n.GetEnd() - s
+            join_clips(resolve, project, timeline, a, b, tracks=((kind, tr),), keep_names_prefix=snap["name"])
+            n = next((x for x in items(timeline, kind, tr) if x.GetStart() - s == a), None)
     save(resolve)
     return n
 
 
-def merge_through_edits(resolve, project, timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("video", 2),
-                        ("audio", 1), ("audio", 2), ("audio", 3)), keep_names_prefix: str = "B-ROLL") -> List[Dict]:
+def join_clips(resolve, project, timeline, start: int, end: int, tracks: Sequence = (("video", 1), ("video", 2),
+               ("audio", 1), ("audio", 2), ("audio", 3)), keep_names_prefix: str = "B-ROLL") -> List[Dict]:
     """Join neighboring items that are really one piece of source into single clips, between `start` and
-    `end` (relative).
+    `end` (relative): the undo of `split_at`, like Timeline > Join Clips.
 
     Two items merge only when they touch on the timeline, share the source clip, the name (so the same
     multicam angle), properties and enabled state, and the second starts on exactly the source frame
@@ -156,7 +165,7 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     tracks locked it ripples only its own). So: unlock everything,
     insert a `frames`-long Text+ at `at` on the destination track, delete it without ripple. Clips that
     span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
-    them afterwards (`continue_clip` fills the space with the same take). Markers after `at` move with the
+    them afterwards (`extend_clip` fills the space with the same take). Markers after `at` move with the
     clips; grades and comps stay on the moved items. Titles need a loaded timeline: pass `other`
     to refresh first.
 

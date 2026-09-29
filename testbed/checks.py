@@ -163,12 +163,12 @@ def ripple_insert(ctx):
 
 @check
 def extend_take(ctx):
-    """ripple_insert + continue_clip: B1 plays 48 frames longer with no jump in its picture or sound."""
+    """ripple_insert + extend_clip: B1 plays 48 frames longer with no jump in its picture or sound."""
     before, after = pair(ctx, "base · a-roll", "extend_take")
     s = after.GetStartFrame()
     ending = [x for k in ("video", "audio") for x in mr.items(after, k, 1) if x.GetEnd() - s == 216]
     mr.ripple_insert(ctx["resolve"], ctx["project"], after, 216, 48)
-    added = [mr.continue_clip(ctx["resolve"], ctx["project"], after, x, 48, record=216) for x in ending]
+    added = [mr.extend_clip(ctx["resolve"], ctx["project"], after, x, 48, record=216) for x in ending]
     last, first = frame_at(ctx, after, 215), frame_at(ctx, after, 216)
     ok = len([a for a in added if a]) == 2 and last and first and last[0] == first[0] == 2 and 1 <= first[1] - last[1] <= 2
     return verdict(after, 216, "extend_take", ok,
@@ -254,9 +254,9 @@ def place_still(ctx):
 
 
 @check
-def merge_through_edits(ctx):
+def join_clips(ctx):
     """A3 cut into two pieces with continuous source merges back into one 120-frame clip, video and audio."""
-    before, after = pair(ctx, "base · a-roll", "merge_through_edits")
+    before, after = pair(ctx, "base · a-roll", "join_clips")
     s = after.GetStartFrame()
     clip = _clip(ctx, "cam_a_24p.mov")
     for kind, mt in (("video", 1), ("audio", 2)):
@@ -267,12 +267,12 @@ def merge_through_edits(ctx):
             p = mr.append_exact(ctx["mp"], after, clip, 1, rec, n, src + off, media_type=mt)
             p.SetName(name)
     split = [(x.GetStart() - s, x.GetDuration()) for x in mr.items(after, "video", 1) if 384 <= x.GetStart() - s < 504]
-    r = mr.merge_through_edits(ctx["resolve"], ctx["project"], after, 384, 504, tracks=(("video", 1), ("audio", 1)),
+    r = mr.join_clips(ctx["resolve"], ctx["project"], after, 384, 504, tracks=(("video", 1), ("audio", 1)),
                                keep_names_prefix="A3")
     merged = {k: [(x.GetStart() - s, x.GetDuration(), mr.source_frames(x)[0]) for x in mr.items(after, k, 1)
                   if 384 <= x.GetStart() - s < 504] for k in ("video", "audio")}
     ok = split == [(384, 50), (434, 70)] and merged == {"video": [(384, 120, 400)], "audio": [(384, 120, 400)]}
-    return verdict(after, 384, "merge_through_edits", ok,
+    return verdict(after, 384, "join_clips", ok,
                    "A3 is one clip again, 384-504, video and audio, starting on CAM A frame 400.",
                    {"split": split, "result": r, "merged": merged})
 

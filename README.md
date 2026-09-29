@@ -39,7 +39,7 @@ Or run a script with `resolve`, `project` and `mr` pre-bound; its `result` varia
 | `projects`, `timelines` | load and map projects, back up timelines, park the playhead |
 | `media` | find bins and clips, import, repoint files, clean scratch items |
 | `assembly` | build cuts from synced recordings, close gaps, no-ripple inserts, nesting |
-| `clips` | exact appends, lossless split, continue a clip, merge through-edits, ripple insert with markers, long stills |
+| `clips` | exact appends, split, extend and join clips, ripple insert with markers, long stills |
 | `titles` | exact-length Text+ and Fusion inserts, a title fitted to a clip, retrimming |
 | `audio` | external sync, channel mapping, crossfades, music cues |
 | `transcription` | Resolve speech-to-text for clips and timeline ranges |

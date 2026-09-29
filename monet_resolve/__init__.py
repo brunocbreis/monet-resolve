@@ -20,7 +20,7 @@ from .transcription import transcribe_clip, transcribe_words, transcribe_timelin
 from .edit import freeze_item
 from .color import set_input_color_space, export_stills
 from .render import render_frame_tiff, render_timeline_mp4
-from .clips import (append_exact, continue_clip, merge_through_edits, shift_markers, ripple_insert, split_at, items_in_range,
+from .clips import (append_exact, extend_clip, join_clips, shift_markers, ripple_insert, split_at, items_in_range,
                     place_still)
 
 __version__ = "0.2.0"
