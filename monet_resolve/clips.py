@@ -166,8 +166,8 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     insert a `frames`-long Text+ at `at` on the destination track, delete it without ripple. Clips that
     span `at` on other tracks (a music cue) are split there with an empty stretch between the halves; re-lay
     them afterwards (`extend_clip` fills the space with the same take). Markers after `at` move with the
-    clips; grades and comps stay on the moved items. Titles need a loaded timeline: pass `other`
-    to refresh first.
+    clips; grades and comps stay on the moved items. An insert that fails (a timeline a script just built)
+    is retried once after a timeline refresh; `other` names the timeline to switch to for it.
 
     Only tracks with auto-select on take part: a track with it off (a UI-only toggle the API cannot read or
     set) neither moves nor splits. The clips spanning `at` are read before the insert and checked after it;
@@ -185,6 +185,10 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     for t in every:
         timeline.SetTrackLock(*t, False)
     it = insert_fusion_title(timeline, at, frames, fps)
+    if not it:
+        refresh_timeline(project, timeline, other)
+        resolve.OpenPage("edit")
+        it = insert_fusion_title(timeline, at, frames, fps)
     where = it.GetTrackTypeAndIndex() if it else None
     if it:
         timeline.DeleteClips([it], False)
@@ -192,7 +196,7 @@ def ripple_insert(resolve, project, timeline, at: int, frames: int, other=None, 
     out = {"inserted_on": where, "end_before": end_before, "end_after": timeline.GetEndFrame() - s,
            "unsplit": _unsplit(timeline, at, frames, spanning)}
     if not it:
-        out["error"] = "the title insert failed; pass `other` to refresh the timeline first"
+        out["error"] = "the title insert failed, also after a timeline refresh"
     elif out["unsplit"]:
         out["error"] = "clips spanning the insert did not split; turn on auto-select for their tracks"
     return out
@@ -210,15 +214,15 @@ def split_at(resolve, project, timeline, at: int, tracks: Sequence[Tuple[str, in
     `tracks` lists the tracks to cut, as ("video" | "audio", index) pairs. Every other track is locked
     during the edit and gets its lock state back. The title needs a video track: when `tracks` has none,
     the first video track with nothing spanning `at` is unlocked too. Titles land on the one unlocked video
-    track only after a refresh, so pass `other` (any other timeline); the locks are set after it.
+    track only after a timeline refresh, so the function refreshes first (`other` names the timeline to
+    switch to; any other one is picked when left out) and sets the locks after it.
     Tracks with auto-select off (UI only) are not cut. The timeline is compared before and after: clips on
     `tracks` that did not split come back under "unsplit", anything else that changed under "changed",
     either with an "error". Saves.
     Returns {"split": [(kind, index, left item, right item)], "unsplit": [...], "changed": [...]}.
     """
     project.SetCurrentTimeline(timeline)
-    if other is not None:
-        refresh_timeline(project, timeline, other)
+    refresh_timeline(project, timeline, other)
     resolve.OpenPage("edit")
     s = timeline.GetStartFrame()
     every = _every_track(timeline)
@@ -244,7 +248,7 @@ def split_at(resolve, project, timeline, at: int, tracks: Sequence[Tuple[str, in
             timeline.SetTrackLock(*t, t not in unlocked)
         it = insert_fusion_title(timeline, at, 1, fps)
         if not it:
-            return {"error": "the title insert failed; pass `other` to refresh the timeline first"}
+            return {"error": "the title insert failed after a timeline refresh"}
         timeline.DeleteClips([it], True)
     finally:
         for t, locked in locks.items():

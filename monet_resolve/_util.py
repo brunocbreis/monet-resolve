@@ -90,7 +90,7 @@ def track_locks(timeline, video_track: Optional[int] = None, lock_audio: bool = 
 
     This is the stand-in for the destination toggle: `Insert*IntoTimeline` lands on the one unlocked
     video track, but only when the locks are set after a refresh (`refresh_timeline`: switch to another
-    timeline and back). Without one the insert goes to the destination-toggle track and returns None when
+    timeline and back). `insert_fusion_title(..., track=, project=)` does all three steps. Without a refresh the insert goes to the destination-toggle track and returns None when
     that track is locked; switching pages does not count. `video_track=None` locks every video track.
     The unlock runs even when the body raises.
     """

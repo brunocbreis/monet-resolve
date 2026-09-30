@@ -5,7 +5,18 @@ from ._util import items, save, tc, timeline_fps, track_locks
 from .timelines import refresh_timeline
 
 
-def _insert_marked(timeline, start: int, duration: int, fps: Optional[int], insert):
+def _insert_marked(timeline, start: int, duration: int, fps: Optional[int], insert, track: Optional[int] = None,
+                   project=None):
+    if track is not None:
+        if project is None:
+            raise ValueError("pass `project` with `track`: landing on a chosen track needs a timeline refresh")
+        refresh_timeline(project, timeline)
+        with track_locks(timeline, track):
+            it = _insert_marked(timeline, start, duration, fps, insert)
+        if it and it.GetTrackTypeAndIndex()[1] != track:
+            timeline.DeleteClips([it], False)
+            return None
+        return it
     s = timeline.GetStartFrame()
     fps = fps or timeline_fps(timeline)
     timeline.SetMarkInOut(start, start + duration - 1)
@@ -15,38 +26,47 @@ def _insert_marked(timeline, start: int, duration: int, fps: Optional[int], inse
     return it
 
 
-def insert_fusion_title(timeline, start: int, duration: int, fps: Optional[int] = None, template: str = "Text+"):
-    """Insert a Fusion title of exact length at `start` (frames from the timeline start) on the unlocked track.
+def insert_fusion_title(timeline, start: int, duration: int, fps: Optional[int] = None, template: str = "Text+",
+                        track: Optional[int] = None, project=None):
+    """Insert a Fusion title of exact length at `start` (frames from the timeline start).
 
-    The workaround for the missing duration setter: `SetMarkInOut(start, start + duration - 1)` (relative
-    frames), `SetCurrentTimecode` at the absolute start, `InsertFusionTitleIntoTimeline(template)`,
-    `ClearMarkInOut`. To land on a chosen track, refresh the timeline (`refresh_timeline`), then lock the
-    other tracks (`track_locks`), then insert; without the refresh it goes to the destination-toggle track,
-    or fails when that track is locked. The Edit page must be open. Returns the TimelineItem, or False/None when the insert failed.
+    Pass `track` (a video track index) and `project` to choose the track: the function refreshes the
+    timeline, locks every other track, inserts, and unlocks. Those three steps only work in that order;
+    locks set without the refresh are ignored. A title that still lands elsewhere is deleted and None comes
+    back. For many titles in a row, call `refresh_timeline` once and insert inside `track_locks` yourself.
+
+    Without `track` the title goes to the destination-toggle track and ripples every unlocked track.
+
+    The length comes from the marks, the workaround for the missing duration setter:
+    `SetMarkInOut(start, start + duration - 1)` (relative frames), `SetCurrentTimecode` at the absolute
+    start, `InsertFusionTitleIntoTimeline(template)`, `ClearMarkInOut`. The Edit page must be open.
+    Returns the TimelineItem, or False/None when the insert failed.
     """
-    return _insert_marked(timeline, start, duration, fps, lambda: timeline.InsertFusionTitleIntoTimeline(template))
+    return _insert_marked(timeline, start, duration, fps, lambda: timeline.InsertFusionTitleIntoTimeline(template),
+                          track, project)
 
 
-def insert_fusion_composition(timeline, start: int, duration: int, fps: Optional[int] = None):
-    """Insert an empty native Fusion composition of exact length at `start` on the unlocked track.
+def insert_fusion_composition(timeline, start: int, duration: int, fps: Optional[int] = None,
+                              track: Optional[int] = None, project=None):
+    """Insert an empty native Fusion composition of exact length at `start`.
 
-    Same marks recipe as `insert_fusion_title` with `InsertFusionCompositionIntoTimeline()`. Returns the
-    TimelineItem, or False/None when the insert failed.
+    Same recipe and the same `track` / `project` arguments as `insert_fusion_title`, with
+    `InsertFusionCompositionIntoTimeline()`. Returns the TimelineItem, or False/None when the insert failed.
     """
-    return _insert_marked(timeline, start, duration, fps, timeline.InsertFusionCompositionIntoTimeline)
+    return _insert_marked(timeline, start, duration, fps, timeline.InsertFusionCompositionIntoTimeline, track, project)
 
 
 def title_fitted_to_clip(resolve, project, timeline, clip_track: int, clip_name: str, track: int,
                          text: Optional[str] = None, name: Optional[str] = None, other=None) -> Dict:
     """Insert a Text+ title on `track` spanning exactly one clip's extent (found by name on `clip_track`).
 
-    Locks every other track so the insert lands on `track`; `other` triggers the switch-away refresh.
+    Refreshes the timeline, then locks every other track so the insert lands on `track`; `other` names the
+    timeline to switch to for the refresh (any other one is picked when left out).
     `text` goes into the title's StyledText on the Fusion page (there is no Inspector call); `name` names
     the item. Saves. Returns {"title": (name, start, duration), "clip": (name, start, duration), "fits": bool}.
     """
     resolve.OpenPage("edit")
-    if other is not None:
-        refresh_timeline(project, timeline, other)
+    refresh_timeline(project, timeline, other)
     s = timeline.GetStartFrame()
     clip = [x for x in items(timeline, "video", clip_track) if x.GetName() == clip_name][0]
     start, dur = clip.GetStart() - s, clip.GetDuration()
@@ -72,7 +92,7 @@ def retrim_title(resolve, project, timeline, track: int, start: int, duration: i
     The workaround for the missing duration setter, done without disturbing the track: an
     `InsertFusionTitleIntoTimeline` is a ripple on its track, so every title from `start` on is snapshotted
     (name, start, duration, color, and its whole Fusion comp exported to `comp_dir`, a temporary folder by
-    default), deleted, the timeline is refreshed (`other`), then the titles are re-inserted in ascending order
+    default), deleted, the timeline is refreshed (through `other`, or any other timeline), then the titles are re-inserted in ascending order
     (nothing sits to their right, so nothing ripples) and each comp is imported back, so text and styling come
     back exactly. Saves. Returns {"title": (name, start, end), "restored": n, "misplaced": [(name, wanted, got)]}.
     """
@@ -91,9 +111,8 @@ def retrim_title(resolve, project, timeline, track: int, start: int, duration: i
                      "comp": path if x.ExportFusionComp(path, 1) else None})
     snap[0]["dur"] = duration
     timeline.DeleteClips(right, False)
-    if other is not None:
-        refresh_timeline(project, timeline, other)
-        resolve.OpenPage("edit")
+    refresh_timeline(project, timeline, other)
+    resolve.OpenPage("edit")
     misplaced, placed = [], []
     with track_locks(timeline, track):
         for c in snap:

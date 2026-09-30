@@ -53,15 +53,28 @@ def place_playhead(resolve, project, timeline, timecode: str) -> Dict:
     return {"timeline": timeline.GetName(), "tc": timeline.GetCurrentTimecode()}
 
 
-def refresh_timeline(project, timeline, other, pause: float = 1.0) -> None:
-    """Switch to `other` and back to `timeline`, sleeping `pause` seconds after each switch.
+def refresh_timeline(project, timeline, other=None, pause: float = 1.0) -> None:
+    """Switch to another timeline and back to `timeline`, sleeping `pause` seconds after each switch.
+
+    `other` is the timeline to switch to; left out, the first other timeline in the project is used, and a
+    project with a single timeline gets a temporary empty one that is deleted afterward.
 
     Workaround: `Insert*IntoTimeline` returns False on a timeline a script just built or emptied, and
     retries, lock variants, and page switches did not fix it; switching timelines does. It is also what
     makes track locks steer an insert: set the locks after this call and the insert lands on the one
     unlocked video track.
     """
+    temp = None
+    if other is None:
+        uid = timeline.GetUniqueId()
+        others = [t for t in (project.GetTimelineByIndex(i) for i in range(1, project.GetTimelineCount() + 1))
+                  if t and t.GetUniqueId() != uid]
+        other = others[0] if others else None
+        if other is None:
+            other = temp = project.GetMediaPool().CreateEmptyTimeline("refresh (temporary)")
     project.SetCurrentTimeline(other)
     time.sleep(pause)
     project.SetCurrentTimeline(timeline)
     time.sleep(pause)
+    if temp is not None:
+        project.GetMediaPool().DeleteTimelines([temp])
