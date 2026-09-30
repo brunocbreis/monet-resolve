@@ -30,10 +30,12 @@ def insert_fusion_title(timeline, start: int, duration: int, fps: Optional[int] 
                         track: Optional[int] = None, project=None):
     """Insert a Fusion title of exact length at `start` (frames from the timeline start).
 
-    Pass `track` (a video track index) and `project` to choose the track: the function refreshes the
-    timeline, locks every other track, inserts, and unlocks. Those three steps only work in that order;
-    locks set without the refresh are ignored. A title that still lands elsewhere is deleted and None comes
-    back. For many titles in a row, call `refresh_timeline` once and insert inside `track_locks` yourself.
+    Pass `track` (a video track index) and `project` to choose the track: the function clears the media
+    pool selection and switches timelines (`refresh_timeline`), locks every other track, inserts, and
+    unlocks. Locks steer the insert only with both of those: with a clip selected in the media pool, or
+    without the timeline switch, it goes to the destination-toggle track. A title that still lands elsewhere
+    is deleted and None comes back. For many titles in a row, call `refresh_timeline` once and insert inside
+    `track_locks` yourself.
 
     Without `track` the title goes to the destination-toggle track and ripples every unlocked track.
 

@@ -91,8 +91,9 @@ def find_destination_track(timeline, fps: Optional[int] = None) -> int:
 def set_destination_track(timeline, track: int, fps: Optional[int] = None) -> int:
     """Move the destination toggle to video track `track`, so title and composition inserts land there.
 
-    No API call reads or sets the toggle, and track locks do not steer an insert: it goes to the toggle's
-    track and returns None when that track is locked. The toggle is read with a probe insert
+    No API call reads or sets the toggle. Locks steer an insert onto the unlocked track only after
+    `refresh_timeline` (empty media pool selection, timeline switch), which also moves the toggle there;
+    this is the other route, for when the selection must stay. The toggle is read with a probe insert
     (`find_destination_track`) and moved with the menu bar, Timeline > Source Track Selector > Move Video
     Track Up / Down (`ui.menu`, macOS accessibility), then probed again. `timeline` must be the current
     timeline on the Edit page, with its video tracks unlocked. Returns the track the toggle ends on.

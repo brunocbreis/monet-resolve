@@ -9,7 +9,7 @@ from . import qc, ui
 from ._util import (VIDEO_PROPS, add_tracks_until, clean_name, find_timeline, items, list_timelines, save, tc,
                     source_frames, tc_seconds, timeline_fps, track_locks)
 from .projects import load_project, map_project
-from .timelines import map_timeline, backup_timeline, place_playhead, refresh_timeline
+from .timelines import map_timeline, backup_timeline, place_playhead, refresh_timeline, clear_media_pool_selection
 from .media import (walk_folders, list_bins, find_bin, find_clip, import_to_bin, import_file_once, replace_clip_file,
                     cleanup_scratch)
 from .assembly import (build_synced_cut, close_gap_ripple, find_destination_track, set_destination_track,

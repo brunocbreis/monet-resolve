@@ -53,17 +53,48 @@ def place_playhead(resolve, project, timeline, timecode: str) -> Dict:
     return {"timeline": timeline.GetName(), "tc": timeline.GetCurrentTimecode()}
 
 
+def clear_media_pool_selection(media_pool) -> bool:
+    """Leave nothing selected in the media pool. Returns True when the selection reads empty afterward.
+
+    No call deselects; changing the current folder and coming back does. A selected clip or timeline acts as
+    the source of the next insert edit, and then a title or composition insert follows the destination
+    toggle instead of the track locks (see `refresh_timeline`). A root folder without subfolders gets a
+    temporary one for the switch.
+    """
+    if not media_pool.GetSelectedClips():
+        return True
+    here, root = media_pool.GetCurrentFolder(), media_pool.GetRootFolder()
+    temp = None
+    if here.GetUniqueId() != root.GetUniqueId():
+        away = root
+    else:
+        subs = root.GetSubFolderList() or []
+        away = subs[0] if subs else None
+        if away is None:
+            away = temp = media_pool.AddSubFolder(root, "selection (temporary)")
+    media_pool.SetCurrentFolder(away)
+    media_pool.SetCurrentFolder(here)
+    if temp is not None:
+        media_pool.DeleteFolders([temp])
+    return not media_pool.GetSelectedClips()
+
+
 def refresh_timeline(project, timeline, other=None, pause: float = 1.0) -> None:
-    """Switch to another timeline and back to `timeline`, sleeping `pause` seconds after each switch.
+    """Clear the media pool selection, then switch to another timeline and back to `timeline`, sleeping
+    `pause` seconds after each switch.
+
+    These two steps are what make track locks steer a title or composition insert onto the one unlocked
+    video track. Both are needed: with a clip or timeline selected in the media pool the insert goes to the
+    destination-toggle track (None when that track is locked), and so it does without the timeline switch.
+    The order of locking and switching does not matter; a page switch does not replace the timeline switch.
 
     `other` is the timeline to switch to; left out, the first other timeline in the project is used, and a
     project with a single timeline gets a temporary empty one that is deleted afterward.
 
-    Workaround: `Insert*IntoTimeline` returns False on a timeline a script just built or emptied, and
-    retries, lock variants, and page switches did not fix it; switching timelines does. It is also what
-    makes track locks steer an insert: set the locks after this call and the insert lands on the one
-    unlocked video track.
+    The switch is also the workaround for `Insert*IntoTimeline` returning False on a timeline a script
+    just built or emptied.
     """
+    clear_media_pool_selection(project.GetMediaPool())
     temp = None
     if other is None:
         uid = timeline.GetUniqueId()

@@ -213,9 +213,9 @@ def split_at(resolve, project, timeline, at: int, tracks: Sequence[Tuple[str, in
 
     `tracks` lists the tracks to cut, as ("video" | "audio", index) pairs. Every other track is locked
     during the edit and gets its lock state back. The title needs a video track: when `tracks` has none,
-    the first video track with nothing spanning `at` is unlocked too. Titles land on the one unlocked video
-    track only after a timeline refresh, so the function refreshes first (`other` names the timeline to
-    switch to; any other one is picked when left out) and sets the locks after it.
+    the first video track with nothing spanning `at` is unlocked too. Titles land on an unlocked video
+    track only after `refresh_timeline` (it empties the media pool selection and switches timelines), so
+    the function runs it first; `other` names the timeline to switch to, any other one when left out.
     Tracks with auto-select off (UI only) are not cut. The timeline is compared before and after: clips on
     `tracks` that did not split come back under "unsplit", anything else that changed under "changed",
     either with an "error". Saves.
