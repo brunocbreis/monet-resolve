@@ -12,7 +12,7 @@ from .projects import load_project, map_project
 from .timelines import map_timeline, backup_timeline, place_playhead, refresh_timeline
 from .media import (walk_folders, list_bins, find_bin, find_clip, import_to_bin, import_file_once, replace_clip_file,
                     cleanup_scratch)
-from .assembly import (build_synced_cut, close_gap_ripple, find_destination_track,
+from .assembly import (build_synced_cut, close_gap_ripple, find_destination_track, set_destination_track,
                        insert_fusion_comp_at, nest_timeline_over_placeholder)
 from .titles import (insert_fusion_title, insert_fusion_composition, title_fitted_to_clip, retrim_title)
 from .audio import (sync_external_audio, set_clip_audio_mapping, audio_crossfades, place_music)

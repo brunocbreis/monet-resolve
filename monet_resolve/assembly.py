@@ -4,6 +4,7 @@ Nothing in the API moves, trims or splits a timeline item. Every change of posit
 "delete it, re-append the source range at the new record frame", which keeps the media pool link and
 loses whatever lived on the item unless restored.
 """
+import time
 from typing import Dict, Optional, Sequence, Tuple
 
 from ._util import VIDEO_PROPS, add_tracks_until, append_exact, clean_name, items, save, source_frames, track_locks
@@ -80,11 +81,33 @@ def find_destination_track(timeline, fps: Optional[int] = None) -> int:
     """
     s = timeline.GetStartFrame()
     nt = timeline.GetTrackCount("video")
-    end = max(x.GetEnd() for ti in range(1, nt + 1) for x in items(timeline, "video", ti)) - s
+    end = max([x.GetEnd() - s for ti in range(1, nt + 1) for x in items(timeline, "video", ti)] or [0])
     p = insert_fusion_composition(timeline, end + 10, 10, fps)
     target = [ti for ti in range(1, nt + 1) if any(x.GetUniqueId() == p.GetUniqueId() for x in items(timeline, "video", ti))][0]
     timeline.DeleteClips([p], False)
     return target
+
+
+def set_destination_track(timeline, track: int, fps: Optional[int] = None) -> int:
+    """Move the destination toggle to video track `track`, so title and composition inserts land there.
+
+    No API call reads or sets the toggle, and track locks do not steer an insert: it goes to the toggle's
+    track and returns None when that track is locked. The toggle is read with a probe insert
+    (`find_destination_track`) and moved with the menu bar, Timeline > Source Track Selector > Move Video
+    Track Up / Down (`ui.menu`, macOS accessibility), then probed again. `timeline` must be the current
+    timeline on the Edit page, with its video tracks unlocked. Returns the track the toggle ends on.
+    """
+    from . import ui
+    current = find_destination_track(timeline, fps)
+    for _ in range(timeline.GetTrackCount("video")):
+        if current == track:
+            break
+        step = "Move Video Track Up" if track > current else "Move Video Track Down"
+        for _ in range(abs(track - current)):
+            ui.menu(["Timeline", "Source Track Selector", step])
+            time.sleep(0.2)
+        current = find_destination_track(timeline, fps)
+    return current
 
 
 def insert_fusion_comp_at(resolve, project, timeline, track: int, start: int, duration: int, name: str,
