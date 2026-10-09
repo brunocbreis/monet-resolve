@@ -6,7 +6,7 @@ from ._util import save
 
 
 def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], timeout: float = 80,
-                      clear_queue: bool = True) -> Dict:
+                      clear_queue: bool = True, resolve=None) -> Dict:
     """Render single frames of a timeline as TIFF (RGB8) files, one render job per frame, and wait for them.
 
     `frames` maps file name to frame relative to the timeline start. `clear_queue=True` (default) calls
@@ -14,7 +14,9 @@ def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], t
     MarkOut` in absolute frames with `SelectAllFrames: False`. Waits up to `timeout` seconds while
     `IsRenderingInProgress()`. This is the ground truth for checking titles and upper tracks as pixels.
     Render MarkIn/MarkOut are the timeline's own in/out marks, so they are cleared afterwards
-    (`ClearMarkInOut`); left behind, they trip the next manual edit or render.
+    (`ClearMarkInOut`); left behind, they trip the next manual edit or render. The finished jobs are deleted,
+    the render range is reset to the whole timeline, and with `resolve` passed the Edit page is reopened,
+    so Bruno is never left on Deliver (2026-10-09).
     Returns {"format": SetCurrentRenderFormatAndCodec result, "status": [GetRenderJobStatus per job]}.
     """
     project.SetCurrentTimeline(timeline)
@@ -31,8 +33,14 @@ def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], t
     t0 = time.time()
     while project.IsRenderingInProgress() and time.time() - t0 < timeout:
         time.sleep(0.5)
+    status = [project.GetRenderJobStatus(j) for j in jobs]
+    # Hand the timeline back clean: no marks, no queued jobs, full render range, Edit page.
     timeline.ClearMarkInOut()
-    return {"format": fmt, "status": [project.GetRenderJobStatus(j) for j in jobs]}
+    project.DeleteAllRenderJobs()
+    project.SetRenderSettings({"SelectAllFrames": True})
+    if resolve is not None:
+        resolve.OpenPage("edit")
+    return {"format": fmt, "status": status}
 
 
 def render_timeline_mp4(resolve, project, timeline, out_dir: str, name: str, width: int = 1920, height: int = 1080,
