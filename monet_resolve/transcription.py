@@ -54,6 +54,7 @@ def transcribe_timeline_range(project, timeline, start: int, end: int, out_dir: 
     with ffmpeg next to it, imports the wav into `scratch_folder` and runs `transcribe_words` on it. Use it
     before cutting takes: word timings from the full camera clip's transcript drift by more than a second
     and merge repeated takes, while the rendered slot's own transcript is frame-accurate to the slot.
+    The render marks are the timeline's in/out marks; they are cleared after the render.
     Returns {"mp4", "wav", "words": [(start_tc, end_tc, word)], "text"}.
     """
     mp = project.GetMediaPool()
@@ -70,6 +71,7 @@ def transcribe_timeline_range(project, timeline, start: int, end: int, out_dir: 
     while project.IsRenderingInProgress() and time.time() - t0 < timeout:
         time.sleep(0.5)
     project.DeleteAllRenderJobs()
+    timeline.ClearMarkInOut()
     mp4 = os.path.join(out_dir, tag + ".mp4")
     wav = os.path.join(out_dir, tag + ".wav")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", mp4, "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", wav], check=True)

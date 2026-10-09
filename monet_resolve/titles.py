@@ -20,9 +20,11 @@ def _insert_marked(timeline, start: int, duration: int, fps: Optional[int], inse
     s = timeline.GetStartFrame()
     fps = fps or timeline_fps(timeline)
     timeline.SetMarkInOut(start, start + duration - 1)
-    timeline.SetCurrentTimecode(tc(s + start, fps))
-    it = insert()
-    timeline.ClearMarkInOut()
+    try:
+        timeline.SetCurrentTimecode(tc(s + start, fps))
+        it = insert()
+    finally:
+        timeline.ClearMarkInOut()  # never leave marks behind for Bruno to trip on
     return it
 
 

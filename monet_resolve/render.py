@@ -13,6 +13,8 @@ def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], t
     `DeleteAllRenderJobs()` first, which drops every job in the Deliver queue. Each job sets `MarkIn ==
     MarkOut` in absolute frames with `SelectAllFrames: False`. Waits up to `timeout` seconds while
     `IsRenderingInProgress()`. This is the ground truth for checking titles and upper tracks as pixels.
+    Render MarkIn/MarkOut are the timeline's own in/out marks, so they are cleared afterwards
+    (`ClearMarkInOut`); left behind, they trip the next manual edit or render.
     Returns {"format": SetCurrentRenderFormatAndCodec result, "status": [GetRenderJobStatus per job]}.
     """
     project.SetCurrentTimeline(timeline)
@@ -29,6 +31,7 @@ def render_frame_tiff(project, timeline, out_dir: str, frames: Dict[str, int], t
     t0 = time.time()
     while project.IsRenderingInProgress() and time.time() - t0 < timeout:
         time.sleep(0.5)
+    timeline.ClearMarkInOut()
     return {"format": fmt, "status": [project.GetRenderJobStatus(j) for j in jobs]}
 
 
