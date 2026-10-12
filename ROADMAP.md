@@ -24,11 +24,11 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 | Status | Count |
 |---|---|
 | `[x] SOLVED` | 39 |
-| `[~] WORKAROUND` | 38 |
+| `[~] WORKAROUND` | 39 |
 | `[?] UNTESTED` | 44 |
 | `[ ] OPEN` | 1 |
 | `[UI] UI-ONLY` | 42 |
-| `[!] QUIRK` | 63 |
+| `[!] QUIRK` | 65 |
 
 Three facts shape most routes below. The `run_script` sandbox has no filesystem, but Resolve reads and writes paths on the Mac, so anything file-based (DRX, .comp, LUT, stills, renders, presets) works once the assistant writes the file with Bash and passes the absolute path. Frame references are mixed: `SetMarkInOut` and `AddMarker` take frames relative to the timeline start; `recordFrame`, `SetCurrentTimecode`, render `MarkIn`/`MarkOut`, `GetStart`/`GetEnd` are absolute. No call moves, trims, or splits an existing timeline item. Splits and trims come from Resolve's own editing: a rippling 1-frame title insert cuts the clips under it (`clips.split_at`), and deleting a piece trims, so the clip keeps everything on it. Moving and extending are still "delete it, re-append the source range at the new record frame", which keeps the media pool link but loses whatever lived on the item unless restored (comps via `ExportFusionComp`/`ImportFusionComp`, grades via `CopyGrades`, speed via `SetSpeed`, keyframes lost).
 
@@ -198,6 +198,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [?] UNTESTED Decompose a compound clip in place - no call. `GetMediaPoolItem().GetTimeline()` is documented for timeline entries and open for compound clips; read its items, re-append them onto the parent at `compoundStart + itemOffset`, delete the compound item. Or Bruno right-clicks, Decompose in Place.
 - [?] UNTESTED Open a compound clip to edit inside - `SetCurrentTimeline(mpi.GetTimeline())` works for timelines; for compound clips the same ambiguity applies.
 - [UI] UI-ONLY Set a multicam item's angle - no API call (`dir()` on a timeline item lists every registered method; the only multicam ones are `PerformMulticamSmartSwitch`, automatic switching, and `FlattenMulticam`). Clip > Multicam Switch > Switch to Angle N works by hand and through Raycast, but a scripted accessibility press read the item as disabled and was ignored. Switch angles in the multicam viewer.
+- [~] WORKAROUND Change a multicam angle's content after the cut - no call edits inside a multicam, but `CreateMulticamClip` accepts timeline media pool items as angles (timecode sync, angle start TC = source start TC). Editing that timeline later (swap, reframe, add GFX) shows in every multicam item on that angle, angle switches untouched. The angle's length is fixed at creation: give the timeline a placeholder spanning the full session before creating the multicam (2026-10-12, rendered frames green → yellow after a swap inside the angle).
 - [UI] UI-ONLY Grade a multicam angle once for every use - the API cannot see inside a multicam. Open the multicam in its own timeline (right-click, Open in Timeline), grade the angle there; every use follows.
 
 ### Subtitles and transcription
@@ -259,6 +260,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [!] QUIRK Menu actions and keystrokes differ on a locked screen - accessibility menu clicks work while the Mac is locked; keystrokes do not arrive, and the window list is empty. A keystroke that silently failed makes the next menu action hit the wrong target (an Apply Grade landed on the timeline's current clip). Run keystroke steps with the screen unlocked, and verify the target before the destructive menu step (2026-09-24).
 - [!] QUIRK Multicam item names are stale - after an angle switch `GetName()` keeps the old "Angle X" until the timeline reloads. Verify angles on a rendered frame (2026-09-24).
 - [!] QUIRK Multicam angle numbers follow angle names alphabetically - whatever order the clips were passed to `CreateMulticamClip`.
+- [!] QUIRK An empty timeline as a multicam angle stays black - `CreateMulticamClip` accepts it, but content appended to that timeline afterwards never shows in the multicam, even after a timeline refresh (2026-10-12).
+- [!] QUIRK `CreateMulticamClip` moves its source clips into an `Original Clips` bin - lookups by folder after creation miss them; walk subfolders (2026-10-12).
 - [!] QUIRK Menu items that need the Edit page - Switch to Angle is disabled on the Deliver and Color pages; a render (`render_frame_tiff`) leaves you on Deliver, so switch back before menu actions (2026-09-24).
 - [!] QUIRK Stills append at most 24 frames - `AppendToTimeline` ignores a longer endFrame for a still image. `clips.place_still` appends pieces and joins them with `CreateFusionClip` (2026-09-24).
 - [ ] OPEN `clips.place_still` overshoots: asked for 191, 184, 177 and 170 frames, it returned a 198-frame item every time (2026-10-07, project at 30 fps). Workaround used: render with MarkIn/MarkOut.
