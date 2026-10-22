@@ -5,7 +5,7 @@ vocabulary, no subclassing. Functions take those objects as arguments and return
 Importing this package does not connect to Resolve; call `connect()` for that.
 """
 from .connect import connect, ResolveNotRunning
-from . import qc, ui, context
+from . import qc, ui
 from ._util import (VIDEO_PROPS, add_tracks_until, clean_name, find_timeline, items, list_timelines, save, tc,
                     source_frames, tc_seconds, timeline_fps, track_locks)
 from .projects import load_project, map_project
