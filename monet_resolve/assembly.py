@@ -268,7 +268,9 @@ def build_synced_cut(resolve, project, timeline_name: str, sources: Dict[str, Di
         t.SetTrackName("audio", i + 1, n)
     pos, placed, failed = 0, [], []
     for sg in segments:
-        n = int(round((sg["b"] - sg["a"]) * fps))
+        # Length from both edges snapped to the frame grid, not round(b - a): two segments that meet at the same
+        # session time then meet on the same frame (rounding the length alone dropped or repeated a frame there).
+        n = int(round(sg["b"] * fps)) - int(round(sg["a"] * fps))
         rec = s + pos
         if sg.get("video"):
             it = _place_range(mp, t, sources[sg["video"]], sg["a"], sg["b"], rec, 1, 1, fps, n)
