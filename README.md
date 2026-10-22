@@ -48,6 +48,7 @@ Or run a script with `resolve`, `project` and `mr` pre-bound; its `result` varia
 | `render` | frame and timeline renders |
 | `ui` | menu-bar actions the API lacks (close a timeline tab, switch pages, the Audio Assistant), through macOS accessibility |
 | `qc` | editorial checks on a cut plan before building it |
+| `context` | what is said under the playhead and what the cut dropped around it, from local word transcripts; the whole cut as a text transcript |
 
 ## Testbed
 

@@ -23,7 +23,7 @@ How we work this list: hit a gap during an edit, add it here as OPEN in the righ
 
 | Status | Count |
 |---|---|
-| `[x] SOLVED` | 39 |
+| `[x] SOLVED` | 40 |
 | `[~] WORKAROUND` | 40 |
 | `[?] UNTESTED` | 44 |
 | `[ ] OPEN` | 1 |
@@ -206,6 +206,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [x] SOLVED Compare takes of the same line and find the pause to cut in - `GetTranscription()` on the full camera clip collapses repeated attempts and drops short clauses. Extract short WAV windows with ffmpeg (`run_script_unsafe`), import into a scratch bin, `TranscribeAudio(False)` per clip, map word timecodes back with the extraction offset and the 25/24 rate factor. `transcribe_clip.py` (0e05d2ae 09:07:36, 09:43:17, 09:45:27).
 - [x] SOLVED Cut by sentences, remove filler words and silences (text-based editing) - compute source ranges from `GetTranscription()` word timings (`'(...)'` segments are silence), then `CreateTimelineFromClips` or `AppendToTimeline`. `assembly.build_synced_cut.py` is the assembler.
 - [~] WORKAROUND Export a transcript file - return `GetTranscription()` from the script, write with Bash. No script.
+- [x] SOLVED Say what is spoken under the playhead and what the cut dropped around it - no API call reads words at a timeline position; map the item's source range to the call clock through a per-episode `context.json` (`{clip: {offset, fps}}`) and read the local per-speaker word files. `context.context_at`, `context.cut_transcript` (the whole cut as text with the dropped stretches between clips); `context_at_playhead.py`, `cut_transcript.py` (2026-10-22, wimr-hugo).
 - [?] UNTESTED Read a subtitle's text - `GetItemListInTrack('subtitle', 1)`; the 20.2.1 changelog fixed "getting subtitle text via scripting API", which points at `TimelineItem.GetName()`.
 - [?] UNTESTED Edit a subtitle's text - `SetName` is the only candidate; if it fails Bruno edits in Inspector, Caption.
 - [?] UNTESTED Import an SRT - `ImportTimelineFromFile` lists AAF/EDL/XML/FCPXML/DRT/ADL/OTIO and no SRT; `ImportMedia([{'FilePath': 'x.srt'}])` may create a pool item and `AppendToTimeline` onto a subtitle track is untested. Or Bruno uses File, Import, Subtitle.
