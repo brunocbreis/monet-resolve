@@ -161,18 +161,16 @@ def check_cut(segments: Sequence[Dict], words: Dict[str, List], envs: Dict[str, 
         txt = " ".join(str(w[3]) for w in ws)
         dur = s["b"] - s["a"]
         cin, cout = cont(i - 1, i), cont(i, i + 1)
-        # SPLIT_TAKE: the next segment continues the same stretch of the same source with no black between. Off
-        # the frame grid it drops or repeats frames inside a take (FAIL); on the grid with the same video key it
-        # is an edit point that changes nothing (WARN: merge the two). Worked 2026-10-22 (wimr-charlie, 1-2 frame jumps).
+        # SPLIT_TAKE: the next segment continues the same stretch of the same source with no black between. A
+        # frame-exact through-edit is fine (it marks a division); off the frame grid it drops or repeats frames
+        # inside a take and hides that the take is continuous (FAIL). Worked 2026-10-22 (wimr-charlie).
         if i + 1 < len(segments) and not s.get("gap"):
             nx = segments[i + 1]
             if clock_of.get(nx["video"], "session") == ck and -0.25 < nx["a"] - s["b"] < 0.25:
                 fr = int(round(nx["a"] * fps)) - int(round(s["b"] * fps))
                 if fr:
                     add("FAIL", "SPLIT_TAKE", i + 1, starts[i + 1],
-                        f"{'drops' if fr > 0 else 'repeats'} {abs(fr)} frame(s) inside one take; merge the segments")
-                elif nx["video"] == s["video"]:
-                    add("WARN", "SPLIT_TAKE", i + 1, starts[i + 1], "one take split in two on the same angle; merge the segments")
+                        f"{'drops' if fr > 0 else 'repeats'} {abs(fr)} frame(s) inside one take; make it a frame-exact through-edit")
         # FRAGMENT
         if dur < rules["fragment_min_s"] and not s.get("allow_short") and not (cin or cout):
             add("FAIL", "FRAGMENT", i, starts[i], f"{dur:.1f}s standalone shot: '{txt}'")
