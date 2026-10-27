@@ -109,3 +109,29 @@ def refresh_timeline(project, timeline, other=None, pause: float = 1.0) -> None:
     time.sleep(pause)
     if temp is not None:
         project.GetMediaPool().DeleteTimelines([temp])
+
+
+def check_frame_rates(project, timeline=None, expect: float = None) -> Dict:
+    """Guard: a timeline's frame rate must equal the rate it plays back at (and `expect`, when given).
+
+    `project.SetSetting("timelinePlaybackFrameRate", ...)` is refused by the API once a project exists, so
+    changing `timelineFrameRate` on a project leaves a 25 fps timeline playing at 24: Resolve then resamples
+    audio on the fly and playback crackles (not in renders; worked out on ios-primary-keyboard, 2026-10-27).
+    Never change a project's rate by script; build at the project's rate, or on a custom-settings timeline.
+    Checks the project and `timeline` (default: current). Returns {"ok", "project": (rate, playback),
+    "timeline": (rate, playback)}; call it after creating a project or timeline and stop when "ok" is False.
+    """
+    t = timeline or project.GetCurrentTimeline()
+    def f(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+    pr, pp = f(project.GetSetting("timelineFrameRate")), f(project.GetSetting("timelinePlaybackFrameRate"))
+    tr = f(t.GetSetting("timelineFrameRate")) if t else pr
+    tp = f(t.GetSetting("timelinePlaybackFrameRate")) if t else pp
+    tp = tp if tp is not None else pp       # custom-settings timelines report "" and play at their own rate
+    ok = pr == pp and (tr == tp or t.GetSetting("useCustomSettings") in ("1", True))
+    if expect is not None:
+        ok = ok and tr == float(expect)
+    return {"ok": ok, "project": (pr, pp), "timeline": (tr, tp)}

@@ -328,7 +328,7 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [!] QUIRK Renaming a tool through `SetAttrs` after expressions reference it may not rewrite those expressions - set `TOOLS_Name` before wiring expressions; `SetExpression` replaces any spline connection on that input.
 - [!] QUIRK Input color space spelling differs from the UI label - `SetClipProperty` returns False without a hint; `set_input_color_space.py` tries variants (0e05d2ae 09:22:02).
 - [!] QUIRK `ProjectManager.CreateProject(name)` returns None while Resolve's startup "Software Update" dialog is open; dismissing it (Skip) makes the same call succeed (2026-10-27).
-- [ ] OPEN `project.SetSetting("timelinePlaybackFrameRate", "25")` returns False (str, float, int) on a fresh project after `timelineFrameRate` was set to 25; playback stays 24 (2026-10-27).
+- [!] QUIRK `project.SetSetting("timelinePlaybackFrameRate", "25")` returns False (str, float, int) on a fresh project after `timelineFrameRate` was set to 25; playback stays 24 (2026-10-27). Consequence: a 25 fps timeline played at 24 with crackling audio. Never change the project rate by script; `timelines.check_frame_rates` guards it.
 
 ## Stub caveats
 
