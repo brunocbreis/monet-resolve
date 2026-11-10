@@ -331,6 +331,8 @@ Three facts shape most routes below. The `run_script` sandbox has no filesystem,
 - [!] QUIRK `ProjectManager.CreateProject(name)` returns None while Resolve's startup "Software Update" dialog is open; dismissing it (Skip) makes the same call succeed (2026-10-27).
 - [!] QUIRK `project.SetSetting("timelinePlaybackFrameRate", "25")` returns False (str, float, int) on a fresh project after `timelineFrameRate` was set to 25; playback stays 24 (2026-10-27). Consequence: a 25 fps timeline played at 24 with crackling audio. Never change the project rate by script; `timelines.check_frame_rates` guards it.
 - [!] QUIRK Replacing a media file at the same path (deleted the clip, re-imported the longer file) brings back the old file's transcript: `TranscribeAudio` returns in ~5 s with the short file's words and pads the rest with one long `(...)`; `ClearTranscription()` returns True and the next `TranscribeAudio` still returns the stale words. Workaround: transcribe a WAV extracted to a new path (2026-11-09, pedro-teaches-a-newbie).
+- [!] QUIRK `MoveClips(items, bin)` into a sub-bin created in the same script copied every item (timelines too, as "<name> copy") and left the originals in place, while returning True; moving into an older sub-bin worked. Read both bins back after every move (2026-11-10, pedro-teaches-a-newbie).
+- [!] QUIRK Deleting a superseded multicam together with its angle timelines and the cuts on it (`DeleteTimelines` + `DeleteClips` in one script) crashed Resolve 21.1 in libFairlightPage; the deletions were saved. Delete in smaller steps and switch timelines first (2026-11-10).
 
 ## Stub caveats
 
